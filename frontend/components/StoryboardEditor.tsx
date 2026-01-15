@@ -53,16 +53,24 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
   }, [episodes, episode]);
   const hasChapters = chapterList.length > 0;
 
+  // 使用 ref 存储回调，避免作为依赖
+  const onActiveChapterChangeRef = useRef(onActiveChapterChange);
+  const onActiveSceneChangeRef = useRef(onActiveSceneChange);
+  useEffect(() => {
+    onActiveChapterChangeRef.current = onActiveChapterChange;
+    onActiveSceneChangeRef.current = onActiveSceneChange;
+  }, [onActiveChapterChange, onActiveSceneChange]);
+
   // 计算初始章节索引
-  const computeInitialChapterIndex = useCallback(() => {
+  const computeInitialChapterIndex = () => {
     if (initialChapterId != null) {
       const idx = chapterList.findIndex(ch => ch.id === initialChapterId);
       if (idx >= 0) return idx;
     }
     return 0;
-  }, [chapterList, initialChapterId]);
+  };
 
-  const [activeChapterIndex, setActiveChapterIndexInternal] = useState(() => computeInitialChapterIndex());
+  const [activeChapterIndex, setActiveChapterIndex] = useState(() => computeInitialChapterIndex());
   const activeEpisode = chapterList[activeChapterIndex];
   const normalizedScenes = useMemo(
     () => (activeEpisode?.scenes || []).map(scene => ({ ...scene, comments: scene.comments || [] })),
@@ -74,16 +82,7 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
   );
 
   // 计算初始场景索引
-  const computeInitialSceneIndex = useCallback(() => {
-    if (initialSceneId != null) {
-      const idx = sortedScenes.findIndex(s => s.id === initialSceneId);
-      if (idx >= 0) return idx;
-    }
-    return 0;
-  }, [sortedScenes, initialSceneId]);
-
-  const [activeSceneIndex, setActiveSceneIndexInternal] = useState(() => {
-    // 初始化时使用 props 中的值
+  const [activeSceneIndex, setActiveSceneIndex] = useState(() => {
     if (initialSceneId != null && activeEpisode) {
       const scenes = [...(activeEpisode.scenes || [])].sort((a, b) => a.index - b.index);
       const idx = scenes.findIndex(s => s.id === initialSceneId);
@@ -92,29 +91,29 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
     return 0;
   });
 
-  // 包装 setActiveChapterIndex 以同步到父组件
-  const setActiveChapterIndex = useCallback((indexOrFn: number | ((prev: number) => number)) => {
-    setActiveChapterIndexInternal(prev => {
-      const newIndex = typeof indexOrFn === 'function' ? indexOrFn(prev) : indexOrFn;
-      const chapter = chapterList[newIndex];
-      onActiveChapterChange?.(chapter?.id ?? null);
-      return newIndex;
-    });
-  }, [chapterList, onActiveChapterChange]);
+  // 使用 ref 存储当前场景列表，供回调使用
+  const sortedScenesRef = useRef(sortedScenes);
+  const chapterListRef = useRef(chapterList);
+  useEffect(() => {
+    sortedScenesRef.current = sortedScenes;
+    chapterListRef.current = chapterList;
+  }, [sortedScenes, chapterList]);
 
-  // 包装 setActiveSceneIndex 以同步到父组件
-  const setActiveSceneIndex = useCallback((indexOrFn: number | ((prev: number) => number)) => {
-    setActiveSceneIndexInternal(prev => {
-      const newIndex = typeof indexOrFn === 'function' ? indexOrFn(prev) : indexOrFn;
-      const scene = sortedScenes[newIndex];
-      onActiveSceneChange?.(scene?.id ?? null);
-      return newIndex;
-    });
-  }, [sortedScenes, onActiveSceneChange]);
+  // 同步章节变化到父组件
+  useEffect(() => {
+    const chapter = chapterListRef.current[activeChapterIndex];
+    onActiveChapterChangeRef.current?.(chapter?.id ?? null);
+  }, [activeChapterIndex]);
+
+  // 同步场景变化到父组件
+  useEffect(() => {
+    const scene = sortedScenesRef.current[activeSceneIndex];
+    onActiveSceneChangeRef.current?.(scene?.id ?? null);
+  }, [activeSceneIndex]);
 
   useEffect(() => {
     if (activeSceneIndex >= sortedScenes.length) {
-      setActiveSceneIndexInternal(Math.max(0, sortedScenes.length - 1));
+      setActiveSceneIndex(Math.max(0, sortedScenes.length - 1));
     }
   }, [activeSceneIndex, sortedScenes.length]);
 

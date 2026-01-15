@@ -356,6 +356,14 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 }) => {
   const [chapters, setChapters] = useState<Episode[]>(episodes || []);
 
+  // 使用 ref 存储回调，避免作为依赖
+  const onActiveChapterChangeRef = useRef(onActiveChapterChange);
+  const onActiveSceneChangeRef = useRef(onActiveSceneChange);
+  useEffect(() => {
+    onActiveChapterChangeRef.current = onActiveChapterChange;
+    onActiveSceneChangeRef.current = onActiveSceneChange;
+  }, [onActiveChapterChange, onActiveSceneChange]);
+
   // 计算初始章节ID：优先使用外部传入的，否则使用第一个章节
   const computeInitialChapterId = () => {
     if (initialChapterId != null) {
@@ -379,20 +387,18 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     return chapter.scenes[0] || null;
   };
 
-  const [activeChapterId, setActiveChapterIdInternal] = useState<number | null>(() => computeInitialChapterId());
-  const [activeScene, setActiveSceneInternal] = useState<Scene | null>(() => computeInitialScene(computeInitialChapterId()));
+  const [activeChapterId, setActiveChapterId] = useState<number | null>(() => computeInitialChapterId());
+  const [activeScene, setActiveScene] = useState<Scene | null>(() => computeInitialScene(computeInitialChapterId()));
 
-  // 包装 setActiveChapterId 以同步到父组件
-  const setActiveChapterId = useCallback((id: number | null) => {
-    setActiveChapterIdInternal(id);
-    onActiveChapterChange?.(id);
-  }, [onActiveChapterChange]);
+  // 同步章节变化到父组件
+  useEffect(() => {
+    onActiveChapterChangeRef.current?.(activeChapterId);
+  }, [activeChapterId]);
 
-  // 包装 setActiveScene 以同步到父组件
-  const setActiveScene = useCallback((scene: Scene | null) => {
-    setActiveSceneInternal(scene);
-    onActiveSceneChange?.(scene?.id ?? null);
-  }, [onActiveSceneChange]);
+  // 同步场景变化到父组件
+  useEffect(() => {
+    onActiveSceneChangeRef.current?.(activeScene?.id ?? null);
+  }, [activeScene?.id]);
   const [commentDraft, setCommentDraft] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
