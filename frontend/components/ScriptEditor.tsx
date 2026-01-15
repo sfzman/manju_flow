@@ -364,6 +364,12 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     onActiveSceneChangeRef.current = onActiveSceneChange;
   }, [onActiveChapterChange, onActiveSceneChange]);
 
+  // 使用 ref 存储初始值，避免 loadChapters 依赖循环
+  const initialChapterIdRef = useRef(initialChapterId);
+  const initialSceneIdRef = useRef(initialSceneId);
+  // 只在首次挂载时更新 ref（后续父组件传入的值不再影响 loadChapters）
+  const hasInitializedRef = useRef(false);
+
   // 计算初始章节ID：优先使用外部传入的，否则使用第一个章节
   const computeInitialChapterId = () => {
     if (initialChapterId != null) {
@@ -476,6 +482,10 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
   const getCommentAuthor = (c: Comment) => c.user?.nickname || c.user?.username || '匿名用户';
 
   const loadChapters = useCallback(async () => {
+    // 防止重复加载
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -512,16 +522,18 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       savedChapterSynopsisRef.current = savedChapterSig;
       setChapters(data);
 
-      // 保持跨模块的选中状态：优先使用初始值，否则使用第一个章节
+      // 保持跨模块的选中状态：使用 ref 中的初始值，避免依赖循环
       let targetChapterId: number | null = null;
       let targetScene: Scene | null = null;
+      const initChapterId = initialChapterIdRef.current;
+      const initSceneId = initialSceneIdRef.current;
 
-      if (initialChapterId != null) {
-        const chapter = data.find(ch => ch.id === initialChapterId);
+      if (initChapterId != null) {
+        const chapter = data.find(ch => ch.id === initChapterId);
         if (chapter) {
           targetChapterId = chapter.id;
-          if (initialSceneId != null) {
-            const scene = chapter.scenes?.find(s => s.id === initialSceneId);
+          if (initSceneId != null) {
+            const scene = chapter.scenes?.find(s => s.id === initSceneId);
             if (scene) targetScene = scene;
           }
         }
@@ -544,7 +556,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [bookId, initialChapterId, initialSceneId]);
+  }, [bookId]);  // 移除 initialChapterId 和 initialSceneId 依赖
 
   const resolveReferenceImage = useCallback(async (raw?: string | null) => {
     if (!raw) {
