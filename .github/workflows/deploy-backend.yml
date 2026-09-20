@@ -35,5 +35,7 @@ jobs:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
-      - name: Describe change order
-        run: aliyun sae DescribeChangeOrder --ChangeOrderId a58f78e3-7065-43f8-acea-8fcd27369917
+      - name: Describe SAE application
+        run: aliyun sae DescribeApplication --AppId "$SAE_APP_ID"
+        env:
+          SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
