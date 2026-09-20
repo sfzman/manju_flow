@@ -35,7 +35,21 @@ jobs:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
-      - name: Describe SAE application
-        run: aliyun sae DescribeApplication --AppId "$SAE_APP_ID"
+      - name: Search SAE APIs
+        run: |
+          aliyun sae --help-search ChangeOrder || true
+          aliyun sae --help-search Application || true
+
+      - name: Describe SAE application state
+        run: |
+          set +e
+          echo "### DescribeApplicationConfig"
+          aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"
+          echo "### DescribeApplicationImage"
+          aliyun sae DescribeApplicationImage --AppId "$SAE_APP_ID"
+          echo "### DescribeApplicationGroups"
+          aliyun sae DescribeApplicationGroups --AppId "$SAE_APP_ID"
+          echo "### DescribeApplicationInstances"
+          aliyun sae DescribeApplicationInstances --AppId "$SAE_APP_ID"
         env:
           SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
