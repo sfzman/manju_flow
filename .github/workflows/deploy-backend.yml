@@ -33,35 +33,50 @@ jobs:
         run: |
           set -euo pipefail
 
-          instances="$(mktemp)"
-          aliyun sae DescribeApplicationInstances \
+          groups="$(mktemp)"
+          aliyun sae DescribeApplicationGroups \
             --AppId "$SAE_APP_ID" \
-            --cli-output json > "$instances"
+            --cli-output json > "$groups"
 
-          echo "### Application instances"
-          jq . "$instances"
+          echo "### Application groups"
+          jq . "$groups"
 
-          instance_ids="$(jq -r '
+          group_ids="$(jq -r '
             [.. | objects | to_entries[]
-              | select((.key | ascii_downcase) == "instanceid")
-              | .value | strings] | .[]
-          ' "$instances")"
-          if [ -z "$instance_ids" ]; then
-            echo "No running instance IDs found" >&2
+              | select((.key | ascii_downcase) == "groupid")
+              | .value | strings] | unique | .[]
+          ' "$groups")"
+          if [ -z "$group_ids" ]; then
+            echo "No application groups found" >&2
             exit 1
           fi
 
-          while IFS= read -r instance_id; do
-            echo "### Logs for instance $instance_id"
-            response="$(mktemp)"
-            if aliyun sae DescribeInstanceLog \
-              --InstanceId "$instance_id" \
-              --cli-output json > "$response"; then
-              jq . "$response"
-              jq -r '.Data // empty' "$response"
-            else
-              echo "Failed to read logs for instance $instance_id" >&2
-            fi
-          done <<< "$instance_ids"
+          instances="$(mktemp)"
+          while IFS= read -r group_id; do
+            echo "### Instances in group $group_id"
+            aliyun sae DescribeApplicationInstances \
+              --AppId "$SAE_APP_ID" \
+              --GroupId "$group_id" \
+              --cli-output json > "$instances"
+            jq . "$instances"
+
+            instance_ids="$(jq -r '
+              [.. | objects | to_entries[]
+                | select((.key | ascii_downcase) == "instanceid")
+                | .value | strings] | unique | .[]
+            ' "$instances")"
+            while IFS= read -r instance_id; do
+              echo "### Logs for instance $instance_id"
+              response="$(mktemp)"
+              if aliyun sae DescribeInstanceLog \
+                --InstanceId "$instance_id" \
+                --cli-output json > "$response"; then
+                jq . "$response"
+                jq -r '.Data // empty' "$response"
+              else
+                echo "Failed to read logs for instance $instance_id" >&2
+              fi
+            done <<< "$instance_ids"
+          done <<< "$group_ids"
         env:
           SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
