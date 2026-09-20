@@ -1,0 +1,67 @@
+name: Debug SAE Scene Assets 500
+
+on:
+  workflow_dispatch:
+
+env:
+  REGION: cn-beijing
+
+jobs:
+  read-instance-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Alibaba Cloud CLI
+        run: |
+          curl -sSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o aliyun-cli.tgz
+          tar -xzf aliyun-cli.tgz
+          sudo mv aliyun /usr/local/bin/
+          aliyun version
+
+      - name: Configure Alibaba Cloud CLI
+        run: |
+          aliyun configure set \
+            --profile default \
+            --mode AK \
+            --region "$REGION" \
+            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
+            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET"
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+
+      - name: Read SAE instance logs
+        run: |
+          set -euo pipefail
+
+          instances="$(mktemp)"
+          aliyun sae DescribeApplicationInstances \
+            --AppId "$SAE_APP_ID" \
+            --cli-output json > "$instances"
+
+          echo "### Application instances"
+          jq . "$instances"
+
+          instance_ids="$(jq -r '
+            [.. | objects | to_entries[]
+              | select((.key | ascii_downcase) == "instanceid")
+              | .value | strings] | .[]
+          ' "$instances")"
+          if [ -z "$instance_ids" ]; then
+            echo "No running instance IDs found" >&2
+            exit 1
+          fi
+
+          while IFS= read -r instance_id; do
+            echo "### Logs for instance $instance_id"
+            response="$(mktemp)"
+            if aliyun sae DescribeInstanceLog \
+              --InstanceId "$instance_id" \
+              --cli-output json > "$response"; then
+              jq . "$response"
+              jq -r '.Data // empty' "$response"
+            else
+              echo "Failed to read logs for instance $instance_id" >&2
+            fi
+          done <<< "$instance_ids"
+        env:
+          SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
