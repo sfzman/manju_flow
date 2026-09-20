@@ -10,7 +10,8 @@ on:
   workflow_dispatch:
 
 env:
-  REGION: cn-beijing
+  SAE_REGION: cn-beijing
+  RDS_REGION: cn-hangzhou
 
 jobs:
   debug-rds-read-only:
@@ -28,7 +29,7 @@ jobs:
           aliyun configure set \
             --profile default \
             --mode AK \
-            --region "$REGION" \
+            --region "$SAE_REGION" \
             --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
             --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET"
         env:
@@ -38,6 +39,8 @@ jobs:
       - name: Inspect ManjuFlow RDS instance and backups
         run: |
           set +e
+          echo "### DescribeDBInstances"
+          aliyun rds DescribeDBInstances --RegionId "$RDS_REGION" --PageSize 50
           echo "### DescribeDBInstanceAttribute"
           aliyun rds DescribeDBInstanceAttribute --DBInstanceId rm-bp1e54v694662tu61
           echo "### DescribeBackupPolicy"
@@ -45,4 +48,4 @@ jobs:
           echo "### DescribeBackups"
           aliyun rds DescribeBackups --DBInstanceId rm-bp1e54v694662tu61 --PageSize 10
         env:
-          REGION: ${{ env.REGION }}
+          RDS_REGION: ${{ env.RDS_REGION }}
