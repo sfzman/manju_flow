@@ -55,31 +55,27 @@ jobs:
           echo "### ListChangeOrders"
           aliyun sae ListChangeOrders --help
 
-      - name: List recent change orders
+      - name: Inspect known failed change order
         run: |
-          set +e
-          aliyun sae ListChangeOrders \
-            --AppId "$SAE_APP_ID" \
-            --CurrentPage 1 \
-            --PageSize 20
-          echo "### Latest change order detail"
-          LATEST_CHANGE_ORDER_ID="$( \
-            aliyun sae ListChangeOrders \
-              --AppId "$SAE_APP_ID" \
-              --CurrentPage 1 \
-              --PageSize 1 \
-              --cli-query 'Data.ChangeOrderList[0].ChangeOrderId' \
-              --cli-output cols=no
-          )"
-          echo "ChangeOrderId: $LATEST_CHANGE_ORDER_ID"
+          set -e
+          FAILED_CHANGE_ORDER_ID="a58f78e3-7065-43f8-acea-8fcd27369917"
+          echo "### Failed change order detail"
           aliyun sae DescribeChangeOrder \
-            --ChangeOrderId "$LATEST_CHANGE_ORDER_ID"
+            --ChangeOrderId "$FAILED_CHANGE_ORDER_ID"
 
       - name: Describe SAE application state
         run: |
-          set +e
-          echo "### DescribeApplicationConfig"
-          aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"
+          set -e
+          for attempt in 1 2 3 4 5; do
+            echo "### DescribeApplicationConfig attempt $attempt"
+            if aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"; then
+              break
+            fi
+            sleep 5
+            if [ "$attempt" -eq 5 ]; then
+              exit 1
+            fi
+          done
           echo "### DescribeApplicationGroups"
           aliyun sae DescribeApplicationGroups --AppId "$SAE_APP_ID"
         env:
