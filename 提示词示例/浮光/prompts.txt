@@ -1,6 +1,5 @@
 提示词
 
-
 示例1:
 视频对标：Blizzard Cinematic《魔兽世界》CG 预告 + Blur Studio 级别电影 CG +《最终幻想 XVI》CG质感。
 【图1为画面左侧近景长发男子角色细节参考图】
