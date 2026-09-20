@@ -13,7 +13,7 @@ env:
   REGION: cn-beijing
 
 jobs:
-  debug-change-order:
+  debug-sae-group-api:
     runs-on: ubuntu-latest
     steps:
       - name: Install Alibaba Cloud CLI
@@ -38,18 +38,27 @@ jobs:
       - name: Search SAE APIs
         run: |
           aliyun sae --help-search ChangeOrder || true
-          aliyun sae --help-search Application || true
+          aliyun sae --help-search Deploy || true
+          aliyun sae --help-search Group || true
 
-      - name: Describe SAE application state
+      - name: Show SAE API help
         run: |
           set +e
-          echo "### DescribeApplicationConfig"
-          aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"
-          echo "### DescribeApplicationImage"
-          aliyun sae DescribeApplicationImage --AppId "$SAE_APP_ID"
-          echo "### DescribeApplicationGroups"
-          aliyun sae DescribeApplicationGroups --AppId "$SAE_APP_ID"
-          echo "### DescribeApplicationInstances"
-          aliyun sae DescribeApplicationInstances --AppId "$SAE_APP_ID"
+          echo "### DeployApplication"
+          aliyun sae DeployApplication --help
+          echo "### DeployApplicationGroup"
+          aliyun sae DeployApplicationGroup --help
+          echo "### UpdateApplicationGroup"
+          aliyun sae UpdateApplicationGroup --help
+          echo "### ListChangeOrders"
+          aliyun sae ListChangeOrders --help
+
+      - name: List recent change orders
+        run: |
+          set +e
+          aliyun sae ListChangeOrders \
+            --AppId "$SAE_APP_ID" \
+            --CurrentPage 1 \
+            --PageSize 20
         env:
           SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
