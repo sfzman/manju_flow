@@ -13,7 +13,7 @@ env:
   REGION: cn-beijing
 
 jobs:
-  debug-sae-group-api:
+  debug-rds-read-only:
     runs-on: ubuntu-latest
     steps:
       - name: Install Alibaba Cloud CLI
@@ -35,48 +35,10 @@ jobs:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
-      - name: Search SAE APIs
-        run: |
-          aliyun sae --help-search ChangeOrder || true
-          aliyun sae --help-search Deploy || true
-          aliyun sae --help-search Group || true
-
-      - name: Show SAE API help
+      - name: Inspect RDS instances
         run: |
           set +e
-          echo "### DescribeChangeOrder"
-          aliyun sae DescribeChangeOrder --help
-          echo "### DeployApplication"
-          aliyun sae DeployApplication --help
-          echo "### DeployApplicationGroup"
-          aliyun sae DeployApplicationGroup --help
-          echo "### UpdateApplicationGroup"
-          aliyun sae UpdateApplicationGroup --help
-          echo "### ListChangeOrders"
-          aliyun sae ListChangeOrders --help
-
-      - name: Inspect known failed change order
-        run: |
-          set -e
-          FAILED_CHANGE_ORDER_ID="a58f78e3-7065-43f8-acea-8fcd27369917"
-          echo "### Failed change order detail"
-          aliyun sae DescribeChangeOrder \
-            --ChangeOrderId "$FAILED_CHANGE_ORDER_ID"
-
-      - name: Describe SAE application state
-        run: |
-          set -e
-          for attempt in 1 2 3 4 5; do
-            echo "### DescribeApplicationConfig attempt $attempt"
-            if aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"; then
-              break
-            fi
-            sleep 5
-            if [ "$attempt" -eq 5 ]; then
-              exit 1
-            fi
-          done
-          echo "### DescribeApplicationGroups"
-          aliyun sae DescribeApplicationGroups --AppId "$SAE_APP_ID"
+          echo "### DescribeDBInstances"
+          aliyun rds DescribeDBInstances --RegionId "$REGION" --PageSize 50
         env:
-          SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
+          REGION: ${{ env.REGION }}
