@@ -7,50 +7,15 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:
 
 env:
-  REGION: cn-beijing  # 阿里云区域，根据需要修改
-  REGISTRY: registry.cn-beijing.aliyuncs.com  # ACR 地址
-  NAMESPACE: ${{ secrets.ACR_NAMESPACE }}  # ACR 命名空间
-  IMAGE_NAME: manju_backend # 镜像仓库名称
-  SAE_APP_ID: ${{ secrets.SAE_APP_ID }}  # SAE 应用 ID
+  REGION: cn-beijing
 
 jobs:
-  build-and-deploy:
+  debug-change-order:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Login to Alibaba Cloud ACR
-        run: |
-          echo "Logging into ${{ env.REGISTRY }}..."
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login --username "${{ secrets.ACR_USERNAME }}" --password-stdin ${{ env.REGISTRY }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Generate image tag
-        id: tag
-        run: |
-          echo "tag=$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          provenance: false
-          sbom: false
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Install Alibaba Cloud CLI
         run: |
           curl -sSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o aliyun-cli.tgz
@@ -63,24 +28,12 @@ jobs:
           aliyun configure set \
             --profile default \
             --mode AK \
-            --region ${{ env.REGION }} \
-            --access-key-id ${{ secrets.ALIYUN_ACCESS_KEY_ID }} \
-            --access-key-secret ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+            --region "$REGION" \
+            --access-key-id "$ALIYUN_ACCESS_KEY_ID" \
+            --access-key-secret "$ALIYUN_ACCESS_KEY_SECRET"
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
-      - name: Deploy to SAE
-        run: |
-          IMAGE_URL="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}"
-          echo "Deploying image: $IMAGE_URL"
-
-          aliyun sae DeployApplication \
-            --region ${{ env.REGION }} \
-            --AppId ${{ env.SAE_APP_ID }} \
-            --ImageUrl "$IMAGE_URL"
-
-      - name: Deployment Summary
-        run: |
-          echo "## Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Region:** ${{ env.REGION }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+      - name: Describe change order
+        run: aliyun sae DescribeChangeOrder --ChangeOrderId a58f78e3-7065-43f8-acea-8fcd27369917
