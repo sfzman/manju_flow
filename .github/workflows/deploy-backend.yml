@@ -35,10 +35,14 @@ jobs:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
-      - name: Inspect RDS instances
+      - name: Inspect ManjuFlow RDS instance and backups
         run: |
           set +e
-          echo "### DescribeDBInstances"
-          aliyun rds DescribeDBInstances --RegionId "$REGION" --PageSize 50
+          echo "### DescribeDBInstanceAttribute"
+          aliyun rds DescribeDBInstanceAttribute --DBInstanceId rm-bp1e54v694662tu61
+          echo "### DescribeBackupPolicy"
+          aliyun rds DescribeBackupPolicy --DBInstanceId rm-bp1e54v694662tu61
+          echo "### DescribeBackups"
+          aliyun rds DescribeBackups --DBInstanceId rm-bp1e54v694662tu61 --PageSize 10
         env:
           REGION: ${{ env.REGION }}
