@@ -68,19 +68,89 @@ jobs:
             --access-key-secret ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
 
       - name: Deploy to SAE
+        id: deploy
+        env:
+          IMAGE_URL: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
         run: |
-          IMAGE_URL="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}"
-          echo "Deploying image: $IMAGE_URL"
+          set -euo pipefail
 
+          response="$(mktemp)"
           aliyun sae DeployApplication \
             --region ${{ env.REGION }} \
             --AppId ${{ env.SAE_APP_ID }} \
-            --ImageUrl "$IMAGE_URL"
+            --ImageUrl "$IMAGE_URL" \
+            --cli-output json > "$response"
+
+          jq -e '.Success == true and .Code == 200' "$response" >/dev/null
+          change_order_id="$(jq -er '.Data.ChangeOrderId' "$response")"
+          echo "ChangeOrderId: $change_order_id"
+          echo "change_order_id=$change_order_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for SAE deployment
+        env:
+          IMAGE_URL: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+          CHANGE_ORDER_ID: ${{ steps.deploy.outputs.change_order_id }}
+        run: |
+          set -euo pipefail
+
+          orders="$(mktemp)"
+          for attempt in $(seq 1 60); do
+            if aliyun sae ListChangeOrders \
+                --region ${{ env.REGION }} \
+                --AppId ${{ env.SAE_APP_ID }} \
+                --CurrentPage 1 \
+                --PageSize 20 \
+                --cli-output json > "$orders"; then
+              status="$(jq -r --arg id "$CHANGE_ORDER_ID" \
+                '[.Data.ChangeOrderList[] | select(.ChangeOrderId == $id)][0].Status // empty' \
+                "$orders")"
+
+              if [ -n "$status" ]; then
+                echo "SAE deployment status: $status"
+                case "$status" in
+                  2)
+                    echo "SAE change order completed successfully"
+                    break
+                    ;;
+                  3)
+                    echo "SAE change order failed and rolled back" >&2
+                    exit 1
+                    ;;
+                  0|1)
+                    ;;
+                  *)
+                    echo "Unknown SAE change order status: $status" >&2
+                    exit 1
+                    ;;
+                esac
+              else
+                echo "Change order $CHANGE_ORDER_ID is not visible yet"
+              fi
+            else
+              echo "Failed to query SAE change orders; retrying"
+            fi
+
+            if [ "$attempt" -eq 60 ]; then
+              echo "Timed out waiting for SAE change order $CHANGE_ORDER_ID" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+
+          groups="$(mktemp)"
+          aliyun sae DescribeApplicationGroups \
+            --region ${{ env.REGION }} \
+            --AppId ${{ env.SAE_APP_ID }} \
+            --cli-output json > "$groups"
+          jq -e --arg image "$IMAGE_URL" \
+            '.Data | map(select(.ImageUrl == $image)) | length > 0' \
+            "$groups" >/dev/null
 
       - name: Deployment Summary
         run: |
           echo "## Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Change order:** \`${{ steps.deploy.outputs.change_order_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Region:** ${{ env.REGION }}" >> $GITHUB_STEP_SUMMARY
           echo "**Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
