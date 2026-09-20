@@ -44,6 +44,8 @@ jobs:
       - name: Show SAE API help
         run: |
           set +e
+          echo "### DescribeChangeOrder"
+          aliyun sae DescribeChangeOrder --help
           echo "### DeployApplication"
           aliyun sae DeployApplication --help
           echo "### DeployApplicationGroup"
@@ -60,5 +62,25 @@ jobs:
             --AppId "$SAE_APP_ID" \
             --CurrentPage 1 \
             --PageSize 20
+          echo "### Latest change order detail"
+          LATEST_CHANGE_ORDER_ID="$( \
+            aliyun sae ListChangeOrders \
+              --AppId "$SAE_APP_ID" \
+              --CurrentPage 1 \
+              --PageSize 1 \
+              --cli-query 'Data.ChangeOrderList[0].ChangeOrderId' \
+              --cli-output cols=no
+          )"
+          echo "ChangeOrderId: $LATEST_CHANGE_ORDER_ID"
+          aliyun sae DescribeChangeOrder \
+            --ChangeOrderId "$LATEST_CHANGE_ORDER_ID"
+
+      - name: Describe SAE application state
+        run: |
+          set +e
+          echo "### DescribeApplicationConfig"
+          aliyun sae DescribeApplicationConfig --AppId "$SAE_APP_ID"
+          echo "### DescribeApplicationGroups"
+          aliyun sae DescribeApplicationGroups --AppId "$SAE_APP_ID"
         env:
           SAE_APP_ID: ${{ secrets.SAE_APP_ID }}
