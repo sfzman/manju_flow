@@ -69,7 +69,7 @@ jobs:
               echo "### Logs for instance $instance_id"
               response="$(mktemp)"
               if aliyun sae DescribeInstanceLog \
-                --InstanceId "$instance_id" \
+                --instanceId "$instance_id" \
                 --cli-output json > "$response"; then
                 jq . "$response"
                 jq -r '.Data // empty' "$response"
