@@ -4,7 +4,7 @@ import { ProductionStage, Project, Episode } from './types';
 import { STAGE_CONFIG, STATUS_MAP, STATUS_FILTERS, DEFAULT_STATUS_FILTER_KEY } from './constants';
 import { ImportBookModal } from './components/ImportBookModal';
 import { LoraLibrary } from './components/LoraLibrary';
-import { authApi, authStorage, bookApi, chapterApi, booksToProjects, CreateBookRequest, AuthResponse } from './api';
+import { authApi, authStorage, bookApi, chapterApi, booksToProjects, CreateBookRequest, AuthResponse, isUnauthorizedError } from './api';
 import { AuthPage } from './components/AuthPage';
 import {
   Search,
@@ -90,12 +90,18 @@ const App: React.FC = () => {
     setCurrentUser(auth.user);
   };
 
-  const handleLogout = () => {
+  // silent = 会话已确认失效（401），无需再通知服务端删除会话
+  const handleLogout = (options?: { silent?: boolean }) => {
+    const token = authStorage.getToken();
     authStorage.clear();
     setAuthToken(null);
     setCurrentUser(null);
     setSelectedProject(null);
     setViewMode('DASHBOARD');
+    // 手动登出时尽力删除服务端会话；失败不影响本地登出
+    if (!options?.silent && token) {
+      authApi.logout(token).catch(() => {});
+    }
   };
 
   // 防抖处理搜索关键词
@@ -142,7 +148,8 @@ const App: React.FC = () => {
     }
   }, [loadProjects, authToken]);
 
-  // 如果有 token，获取当前用户信息，失效则清空
+  // 如果有 token，获取当前用户信息；仅在 401（会话失效）时才登出，
+  // 网络/服务端瞬时错误保留 token，避免误踢下线
   useEffect(() => {
     const fetchMe = async () => {
       if (!authToken) return;
@@ -150,12 +157,22 @@ const App: React.FC = () => {
         const user = await authApi.me();
         setCurrentUser(user);
       } catch (err) {
-        console.error('Failed to fetch user, clearing auth', err);
-        handleLogout();
+        if (isUnauthorizedError(err)) {
+          handleLogout({ silent: true });
+        } else {
+          console.error('Failed to fetch user:', err);
+        }
       }
     };
     fetchMe();
   }, [authToken]);
+
+  // 任意携带 token 的请求收到 401（会话过期/被删除）时统一登出
+  useEffect(() => {
+    const onAuthExpired = () => handleLogout({ silent: true });
+    window.addEventListener('auth:expired', onAuthExpired);
+    return () => window.removeEventListener('auth:expired', onAuthExpired);
+  }, []);
 
   // 监听点击关闭下拉菜单
   useEffect(() => {
@@ -396,7 +413,7 @@ const App: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={handleLogout}
+                onClick={() => handleLogout()}
                 className="text-white/50 text-sm hover:text-white underline underline-offset-4"
               >
                 退出登录
@@ -455,7 +472,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={handleLogout}
+            onClick={() => handleLogout()}
             className="text-white/50 text-sm hover:text-white underline underline-offset-4"
           >
             退出登录

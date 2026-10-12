@@ -1,8 +1,10 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"manju-flow/internal/config"
 	"manju-flow/internal/models"
@@ -50,6 +52,7 @@ func Init(cfg *config.DatabaseConfig) error {
 	// 避免再漏跑显式迁移。显式 make migrate 保留作手动兜底。
 	if err := db.AutoMigrate(
 		&models.User{},
+		&models.Session{},
 		&models.Book{},
 		&models.BookFavorite{},
 		&models.Chapter{},
@@ -82,4 +85,31 @@ func Init(cfg *config.DatabaseConfig) error {
 // GetDB 获取数据库实例
 func GetDB() *gorm.DB {
 	return DB
+}
+
+// CleanExpiredSessions 删除已过期的登录会话
+func CleanExpiredSessions() error {
+	return DB.Where("expires_at <= ?", time.Now()).Delete(&models.Session{}).Error
+}
+
+// StartSessionCleaner 启动后台协程，定期清理过期的登录会话
+func StartSessionCleaner(ctx context.Context) {
+	go func() {
+		// 启动时先清理一次，回收服务停机期间过期的会话
+		if err := CleanExpiredSessions(); err != nil {
+			log.Printf("Failed to clean expired sessions: %v", err)
+		}
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := CleanExpiredSessions(); err != nil {
+					log.Printf("Failed to clean expired sessions: %v", err)
+				}
+			}
+		}
+	}()
 }

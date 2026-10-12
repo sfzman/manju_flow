@@ -134,7 +134,7 @@ export interface BookListParams {
 }
 
 // API 错误处理
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = 'ApiError';
@@ -148,6 +148,17 @@ export const authStorage = {
   setToken: (token: string) => localStorage.setItem(TOKEN_KEY, token),
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
+
+/** 会话确认失效（携带 token 的请求收到 401）时广播该事件，由应用统一登出 */
+const AUTH_EXPIRED_EVENT = 'auth:expired';
+
+const notifyAuthExpired = () => {
+  if (isBrowser) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+};
+
+/** 判断错误是否为 401 未授权（会话失效），区别于网络/服务端瞬时错误 */
+export const isUnauthorizedError = (err: unknown): boolean =>
+  err instanceof ApiError && err.status === 401;
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -164,6 +175,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const token = authStorage.getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
+  // 是否实际携带了 token（登录/注册显式传空 Authorization，不算携带）
+  const carriedToken = Boolean(headers.Authorization);
 
   const response = await fetch(url, {
     ...options,
@@ -172,6 +185,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    // 携带 token 的请求收到 401 = 会话已失效，广播统一登出
+    if (response.status === 401 && carriedToken) notifyAuthExpired();
     throw new ApiError(response.status, errorData.error || `Request failed with status ${response.status}`);
   }
 
@@ -202,6 +217,13 @@ export const authApi = {
       headers: { Authorization: '' }, // 显式移除 token
     }),
   me: () => request<AuthResponse['user']>('/api/auth/me'),
+  // 登出：删除当前会话（仅当前端，不影响其他设备）
+  // 传入 token 用于登出前 localStorage 已被清空的场景
+  logout: (token?: string) =>
+    request<{ message: string }>('/api/auth/logout', {
+      method: 'POST',
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    }),
 };
 
 // 书籍 API
@@ -610,6 +632,8 @@ export const fileApi = {
             reject(new ApiError(xhr.status, 'Invalid JSON response'));
           }
         } else {
+          // 携带 token 的上传收到 401 = 会话已失效，广播统一登出
+          if (xhr.status === 401) notifyAuthExpired();
           let message = `Upload failed with status ${xhr.status}`;
           try {
             const errorData = JSON.parse(xhr.responseText);
@@ -1001,6 +1025,8 @@ export const videoApi = {
           }
           return;
         }
+        // 携带 token 的上传收到 401 = 会话已失效，广播统一登出
+        if (xhr.status === 401) notifyAuthExpired();
         let message = `Upload failed with status ${xhr.status}`;
         try {
           const errorData = JSON.parse(xhr.responseText);

@@ -42,6 +42,9 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
+	// 启动登录会话过期清理
+	database.StartSessionCleaner(context.Background())
+
 	// 初始化 OSS（可选，如果未配置则跳过）
 	if cfg.OSS.Endpoint != "" {
 		if err := oss.Init(&cfg.OSS); err != nil {

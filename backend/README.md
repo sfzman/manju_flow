@@ -48,6 +48,14 @@ docker-compose up -d
 - 将旧的 `scene_asset_id` 绑定转换为 `scene_asset_code`。
 - 创建 `(scene_asset_book_id, scene_asset_code)` 复合外键；资产删除时自动清空绑定，编号更新时自动级联。`scene_asset_book_id` 仅用于外键，不会出现在 API 中，避免删除资产时影响 `scenes.book_id`。
 
+## 认证与会话
+
+- 登录/注册成功后创建独立会话（`sessions` 表），返回随机 token。
+- **一个账号可同时保持多个会话**：多浏览器/多设备登录互不挤下线；每次登录新增一条会话，不再覆盖旧 token。
+- 会话有效期由 `SESSION_TTL` 控制（默认 30 天），过期会话由后台协程每小时清理一次。
+- `POST /api/auth/logout` 删除当前会话（仅当前端，不影响同账号其他设备）。
+- 兼容升级：旧版 `users.token` 中的存量 token 在首次请求时自动懒迁移为会话记录，已登录用户无需重新登录。
+
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
@@ -61,6 +69,7 @@ docker-compose up -d
 | DB_PASSWORD | MySQL 密码 | - |
 | DB_NAME | 数据库名 | manju_flow |
 | CORS_ORIGINS | 允许的跨域来源 | * |
+| SESSION_TTL | 登录会话有效期，Go duration 格式（如 720h）或纯小时数 | 720h |
 | OSS_ENDPOINT | 阿里云 OSS 端点 | - |
 | OSS_ACCESS_KEY_ID | OSS AccessKey ID | - |
 | OSS_ACCESS_KEY_SECRET | OSS AccessKey Secret | - |

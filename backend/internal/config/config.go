@@ -5,6 +5,7 @@ import (
 	"manju-flow/utils"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var Cfg *Config
@@ -31,6 +32,8 @@ type CORSConfig struct {
 // AuthConfig 认证配置
 type AuthConfig struct {
 	RegisterWhitelist map[string]bool
+	// SessionTTL 登录会话有效期，默认 30 天
+	SessionTTL time.Duration
 }
 
 // AppConfig 应用程序配置
@@ -145,6 +148,7 @@ func Load() *Config {
 		},
 		Auth: AuthConfig{
 			RegisterWhitelist: parseWhitelist(utils.GetEnv("REGISTER_WHITELIST", "")),
+			SessionTTL:        parseSessionTTL(utils.GetEnv("SESSION_TTL", "")),
 		},
 	}
 	return Cfg
@@ -226,4 +230,25 @@ func parseWhitelist(whitelist string) map[string]bool {
 		}
 	}
 	return result
+}
+
+// parseSessionTTL 解析登录会话有效期
+// 支持 Go duration 格式（如 "720h"），纯数字按小时处理；为空或非法时回退默认 30 天
+func parseSessionTTL(raw string) time.Duration {
+	const defaultTTL = 30 * 24 * time.Hour
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultTTL
+	}
+	// 纯数字按小时数处理，如 "168" = 168h
+	if hours, err := strconv.Atoi(raw); err == nil {
+		if hours > 0 {
+			return time.Duration(hours) * time.Hour
+		}
+		return defaultTTL
+	}
+	if ttl, err := time.ParseDuration(raw); err == nil && ttl > 0 {
+		return ttl
+	}
+	return defaultTTL
 }

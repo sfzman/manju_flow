@@ -12,7 +12,9 @@ type User struct {
 	Username  string         `gorm:"size:50;uniqueIndex;not null" json:"username"`
 	Password  string         `gorm:"size:255;not null" json:"-"` // 密码不返回给前端
 	Nickname  string         `gorm:"size:100" json:"nickname"`
-	Token     string         `gorm:"size:255" json:"-"` // 当前有效的 token
+	// Deprecated: 登录会话已改用 sessions 表（支持多端同时在线）。
+	// 此列仅保留作历史 token 的懒迁移回退，登录时不再写入。
+	Token     string         `gorm:"size:255" json:"-"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

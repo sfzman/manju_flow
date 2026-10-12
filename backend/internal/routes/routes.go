@@ -40,7 +40,6 @@ func Setup(r *gin.Engine) {
 			auth.POST("/register", authHandler.Register) // 注册
 			auth.POST("/login", authHandler.Login)       // 登录
 		}
-
 		// 文件路由（获取文件支持可选认证）
 		fileHandler := handlers.NewFileHandler()
 		api.GET("/files/*key", middleware.AuthOptional(), fileHandler.Get) // 获取文件（支持公开/私有）
@@ -51,6 +50,8 @@ func Setup(r *gin.Engine) {
 		{
 			// 获取当前用户信息
 			authorized.GET("/auth/me", authHandler.GetCurrentUser)
+			// 退出登录（删除当前会话，不影响其他已登录设备）
+			authorized.POST("/auth/logout", authHandler.Logout)
 
 			// 文件路由（需要认证）
 			authorized.POST("/files/original-text", fileHandler.UploadOriginalText) // 上传作品原文 txt

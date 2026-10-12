@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/http"
+	"time"
 
 	"manju-flow/internal/config"
 	"manju-flow/internal/database"
@@ -30,8 +32,36 @@ func hashPassword(password string) string {
 // generateToken 生成随机 token
 func generateToken() string {
 	bytes := make([]byte, 32)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// crypto/rand 失败意味着系统熵源不可用，静默降级会产生全零 token（严重安全问题），直接快速失败
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(bytes)
+}
+
+// truncateString 截断字符串到指定字节长度，避免超出列宽导致写入失败
+func truncateString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+
+// createSession 为用户创建新的登录会话，返回会话 token
+// 会话之间相互独立，同一账号多端登录不会互相挤下线
+func createSession(c *gin.Context, userID uint) (string, error) {
+	token := generateToken()
+	session := models.Session{
+		UserID:    userID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(config.Cfg.Auth.SessionTTL),
+		UserAgent: truncateString(c.Request.UserAgent(), 255),
+		IP:        truncateString(c.ClientIP(), 64),
+	}
+	if err := database.GetDB().Create(&session).Error; err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // Register 用户注册
@@ -74,12 +104,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	// 创建用户
-	token := generateToken()
 	user := models.User{
 		Username: req.Username,
 		Password: hashPassword(req.Password),
 		Nickname: req.Nickname,
-		Token:    token,
 	}
 
 	if user.Nickname == "" {
@@ -89,6 +117,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if err := db.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "注册失败",
+		})
+		return
+	}
+
+	// 注册后直接登录：创建会话
+	token, err := createSession(c, user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "注册成功但创建会话失败，请重新登录",
 		})
 		return
 	}
@@ -138,10 +175,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// 生成新 token
-	token := generateToken()
-	user.Token = token
-	if err := db.Save(&user).Error; err != nil {
+	// 创建新会话（不影响该账号的其他已登录会话）
+	token, err := createSession(c, user.ID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "登录失败",
 		})
@@ -151,6 +187,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, models.AuthResponse{
 		Token: token,
 		User:  user,
+	})
+}
+
+// Logout 退出登录
+// @Summary 退出登录
+// @Description 删除当前会话（仅当前端，不影响该账号的其他已登录设备）
+// @Tags auth
+// @Produce json
+// @Security Bearer
+// @Success 200 {object} map[string]string
+// @Router /api/auth/logout [post]
+func (h *AuthHandler) Logout(c *gin.Context) {
+	token := c.GetString("authToken")
+	if token != "" {
+		if err := database.GetDB().Where("token = ?", token).Delete(&models.Session{}).Error; err != nil {
+			// 删除失败不阻塞登出，交由过期清理兜底
+			log.Printf("Failed to delete session: %v", err)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "已退出登录",
 	})
 }
 
