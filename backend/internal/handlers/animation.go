@@ -38,6 +38,10 @@ const (
 	animationTaskPollRequestTimeout = 30 * time.Second
 	animationVersionDownloadTimeout = 2 * time.Minute
 
+	// animationPromptLLMTimeout 是生成分镜草稿/一键优化提示词的 LLM 同步调用超时；
+	// 输入包含场景上下文与多张参考图，耗时可能远超普通请求，与章节导入保持 5 分钟。
+	animationPromptLLMTimeout = 5 * time.Minute
+
 	HeaderDashScopeAsync = "X-Dashscope-Async"
 )
 
@@ -2666,7 +2670,7 @@ func (h *AnimationHandler) OptimizePrompt(c *gin.Context) {
 		systemPrompt = buildWanAnimationPromptOptimizeSystemPrompt()
 	}
 
-	client := ai.NewArkClient(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey)
+	client := ai.NewArkClientWithTimeout(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey, animationPromptLLMTimeout)
 	optimized, err := client.GenerateTextWithImages(
 		c.Request.Context(),
 		modelID,
@@ -2845,7 +2849,7 @@ func (h *AnimationHandler) GeneratePromptDraft(c *gin.Context) {
 		draftScenes = append(draftScenes, draftScene)
 	}
 
-	client := ai.NewArkClient(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey)
+	client := ai.NewArkClientWithTimeout(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey, animationPromptLLMTimeout)
 	draft, err := client.GenerateTextWithImages(
 		c.Request.Context(),
 		modelID,
