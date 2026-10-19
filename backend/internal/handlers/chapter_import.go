@@ -30,7 +30,10 @@ const (
 	maxChapterScriptSize = 1 << 20
 	maxImportedScenes    = 200
 	chapterImportWorkers = 2
-	chapterImportLease   = 2 * time.Minute
+	// chapterImportLeaseMargin 是租约超出 AI 分析耗时的余量，覆盖分析完成后的落库阶段。
+	chapterImportLeaseMargin = 2 * time.Minute
+	// defaultChapterImportAITimeout 是未加载配置时的兜底 AI 分析超时。
+	defaultChapterImportAITimeout = 5 * time.Minute
 )
 
 var (
@@ -117,6 +120,20 @@ func truncateRunes(value string, max int) string {
 		return value
 	}
 	return string(runes[:max])
+}
+
+// chapterImportFailureMessage 在用户可读的失败提示后拼接底层错误详情，
+// 让 import-tasks API 的 errorMessage 字段能直接暴露具体失败原因。
+func chapterImportFailureMessage(base string, err error) string {
+	if err == nil {
+		return base
+	}
+	// 压缩空白（含换行）避免错误详情破坏单行展示。
+	detail := strings.Join(strings.Fields(err.Error()), " ")
+	if detail == "" {
+		return base
+	}
+	return truncateRunes(base+"（"+detail+"）", 500)
 }
 
 // Import 创建一个持久化的 txt 脚本导入任务。
@@ -244,6 +261,20 @@ func notifyChapterImportWorker() {
 	}
 }
 
+// chapterImportAITimeout 返回导入任务 AI 分析的 HTTP 超时；未加载配置时使用内置默认值。
+func chapterImportAITimeout() time.Duration {
+	if config.Cfg != nil && config.Cfg.ChapterImport.AITimeout > 0 {
+		return config.Cfg.ChapterImport.AITimeout
+	}
+	return defaultChapterImportAITimeout
+}
+
+// chapterImportLeaseDuration 租约必须覆盖整个 AI 分析阶段：
+// 超时调大后租约若仍固定 2 分钟，请求在途时任务就会被其他 worker 抢走并发重复分析。
+func chapterImportLeaseDuration() time.Duration {
+	return chapterImportAITimeout() + chapterImportLeaseMargin
+}
+
 func newChapterImportToken() string {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err == nil {
@@ -272,7 +303,7 @@ func claimNextChapterImportTask(db *gorm.DB) (*models.ChapterImportTask, error) 
 		}
 
 		token := newChapterImportToken()
-		leaseExpiresAt := now.Add(chapterImportLease)
+		leaseExpiresAt := now.Add(chapterImportLeaseDuration())
 		nextStatus := candidate.Status
 		if nextStatus == models.ChapterImportTaskStatusPending {
 			nextStatus = models.ChapterImportTaskStatusAnalyzing
@@ -321,20 +352,21 @@ func failChapterImportTask(db *gorm.DB, task *models.ChapterImportTask, message 
 }
 
 func analyzeChapterImportTask(ctx context.Context, db *gorm.DB, task *models.ChapterImportTask) bool {
-	client := ai.NewArkClient(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey)
+	// 章节脚本可能很大，AI 分析耗时远超普通同步请求，这里使用可配置的长超时。
+	client := ai.NewArkClientWithTimeout(config.Cfg.ArkAgentPlan.APIBaseURL, config.Cfg.ArkAgentPlan.APIKey, chapterImportAITimeout())
 	response, err := client.GenerateText(ctx, task.Model, buildChapterImportSystemPrompt(), buildChapterImportUserPrompt(task.ScriptContent))
 	if err != nil {
 		log.Printf("chapter import worker: AI analysis failed for task %d: %v", task.ID, err)
-		failChapterImportTask(db, task, "AI 分析脚本失败，请重新导入")
+		failChapterImportTask(db, task, chapterImportFailureMessage("AI 分析脚本失败，请重新导入", err))
 		return false
 	}
 	if _, err := parseImportedChapterDraft(response); err != nil {
 		log.Printf("chapter import worker: invalid AI response for task %d: %v", task.ID, err)
-		failChapterImportTask(db, task, "AI 返回的章节数据不完整，请重新导入")
+		failChapterImportTask(db, task, chapterImportFailureMessage("AI 返回的章节数据不完整，请重新导入", err))
 		return false
 	}
 
-	leaseExpiresAt := time.Now().Add(chapterImportLease)
+	leaseExpiresAt := time.Now().Add(chapterImportLeaseDuration())
 	result := db.Model(&models.ChapterImportTask{}).
 		Where("id = ? AND status = ? AND processing_token = ?", task.ID, models.ChapterImportTaskStatusAnalyzing, task.ProcessingToken).
 		Updates(map[string]any{
@@ -450,12 +482,12 @@ func (h *ChapterHandler) processNextImportTask(ctx context.Context) bool {
 	}
 	draft, err := parseImportedChapterDraft(task.AIResponse)
 	if err != nil {
-		failChapterImportTask(db, task, "AI 返回的章节数据不完整，请重新导入")
+		failChapterImportTask(db, task, chapterImportFailureMessage("AI 返回的章节数据不完整，请重新导入", err))
 		return true
 	}
 	if err := importChapterTaskData(db, task, draft); err != nil {
 		log.Printf("chapter import worker: failed to import task %d: %v", task.ID, err)
-		failChapterImportTask(db, task, "章节和场景写入失败，请重新导入")
+		failChapterImportTask(db, task, chapterImportFailureMessage("章节和场景写入失败，请重新导入", err))
 	}
 	return true
 }
@@ -470,7 +502,7 @@ func (h *ChapterHandler) StartImportTaskWorker(ctx context.Context) {
 		return
 	}
 
-	log.Printf("chapter import worker started, concurrency=%d", chapterImportWorkers)
+	log.Printf("chapter import worker started, concurrency=%d, ai timeout=%s", chapterImportWorkers, chapterImportAITimeout())
 	for i := 0; i < chapterImportWorkers; i++ {
 		go func() {
 			ticker := time.NewTicker(2 * time.Second)

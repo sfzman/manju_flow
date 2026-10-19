@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -35,6 +36,39 @@ func TestParseImportedChapterDraftRejectsMissingSceneDescription(t *testing.T) {
 	raw := `{"title":"第三集","synopsis":"故事梗概","scenes":[{"description":""}]}`
 	if _, err := parseImportedChapterDraft(raw); err == nil {
 		t.Fatal("expected missing scene description to be rejected")
+	}
+}
+
+func TestChapterImportFailureMessageAppendsErrorDetail(t *testing.T) {
+	base := "AI 分析脚本失败，请重新导入"
+	if got := chapterImportFailureMessage(base, nil); got != base {
+		t.Fatalf("chapterImportFailureMessage() with nil error = %q, want %q", got, base)
+	}
+
+	got := chapterImportFailureMessage(base, errors.New("ark responses request failed: 401 unauthorized"))
+	if !strings.Contains(got, base) || !strings.Contains(got, "401 unauthorized") {
+		t.Fatalf("chapterImportFailureMessage() = %q, want base message with error detail", got)
+	}
+
+	multiline := chapterImportFailureMessage(base, errors.New("decode failed:\n\tunexpected\twhitespace"))
+	if strings.Contains(multiline, "\n") || strings.Contains(multiline, "\t") {
+		t.Fatalf("chapterImportFailureMessage() should collapse whitespace, got %q", multiline)
+	}
+
+	long := chapterImportFailureMessage(base, errors.New(strings.Repeat("x", 2000)))
+	if runes := []rune(long); len(runes) > 500 {
+		t.Fatalf("chapterImportFailureMessage() length = %d runes, want <= 500", len(runes))
+	}
+}
+
+func TestChapterImportLeaseCoversAITimeout(t *testing.T) {
+	// 未加载配置时使用内置默认值，租约必须覆盖默认 AI 超时
+	if got := chapterImportAITimeout(); got != defaultChapterImportAITimeout {
+		t.Fatalf("chapterImportAITimeout() with nil config = %v, want %v", got, defaultChapterImportAITimeout)
+	}
+	lease := chapterImportLeaseDuration()
+	if lease <= defaultChapterImportAITimeout {
+		t.Fatalf("chapterImportLeaseDuration() = %v, must exceed AI timeout %v", lease, defaultChapterImportAITimeout)
 	}
 }
 

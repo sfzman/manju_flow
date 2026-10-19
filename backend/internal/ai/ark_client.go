@@ -18,12 +18,24 @@ type ArkClient struct {
 	HTTPClient *http.Client
 }
 
+// defaultArkRequestTimeout 是 Ark 同步请求的默认 HTTP 超时。
+const defaultArkRequestTimeout = 90 * time.Second
+
 func NewArkClient(baseURL string, apiKey string) *ArkClient {
+	return NewArkClientWithTimeout(baseURL, apiKey, 0)
+}
+
+// NewArkClientWithTimeout 创建指定 HTTP 超时的客户端；timeout <= 0 时使用默认 90s。
+// 长文本分析（如章节 txt 导入）应传更长的超时，避免 Client.Timeout 提前中断请求。
+func NewArkClientWithTimeout(baseURL string, apiKey string, timeout time.Duration) *ArkClient {
+	if timeout <= 0 {
+		timeout = defaultArkRequestTimeout
+	}
 	return &ArkClient{
 		BaseURL: strings.TrimSpace(baseURL),
 		APIKey:  strings.TrimSpace(apiKey),
 		HTTPClient: &http.Client{
-			Timeout: 90 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -187,13 +199,21 @@ func (c *ArkClient) createResponsesText(ctx context.Context, payload responsesRe
 
 	var parsed responsesOutput
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", err
+		return "", fmt.Errorf("decode ark responses payload: %v (raw head: %s)", err, truncateRunes(string(raw), 300))
 	}
 	text := extractResponsesText(parsed)
 	if text == "" {
 		return "", fmt.Errorf("ark responses output is empty")
 	}
 	return text, nil
+}
+
+func truncateRunes(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return string(runes[:max])
 }
 
 func (c *ArkClient) responsesURL() string {

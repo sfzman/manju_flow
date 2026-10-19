@@ -12,16 +12,17 @@ var Cfg *Config
 
 // Config 应用配置
 type Config struct {
-	Server       ServerConfig
-	Database     DatabaseConfig
-	OSS          OSSConfig
-	TTS          TTSConfig
-	Ark          ArkConfig
-	Wan          WanConfig
-	ArkAgentPlan ArkAgentPlanConfig
-	App          AppConfig
-	CORS         CORSConfig
-	Auth         AuthConfig
+	Server        ServerConfig
+	Database      DatabaseConfig
+	OSS           OSSConfig
+	TTS           TTSConfig
+	Ark           ArkConfig
+	Wan           WanConfig
+	ArkAgentPlan  ArkAgentPlanConfig
+	ChapterImport ChapterImportConfig
+	App           AppConfig
+	CORS          CORSConfig
+	Auth          AuthConfig
 }
 
 // CORSConfig 跨域配置
@@ -77,6 +78,12 @@ type ArkAgentPlanConfig struct {
 	APIBaseURL         string
 	APIKey             string
 	SupportedLLMModels []string
+}
+
+// ChapterImportConfig 章节 txt 导入配置
+type ChapterImportConfig struct {
+	// AITimeout 单个导入任务 AI 分析的 HTTP 超时；脚本越大越可能需要调大
+	AITimeout time.Duration
 }
 
 // ServerConfig 服务器配置
@@ -142,6 +149,9 @@ func Load() *Config {
 			APIBaseURL:         utils.GetEnv("ARK_AGENT_PLAN_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/plan"),
 			APIKey:             utils.GetEnv("ARK_AGENT_PLAN_API_KEY", ""),
 			SupportedLLMModels: parseStringList(utils.GetEnv("ARK_AGENT_PLAN_SUPPORTED_LLM_MODELS", "doubao-seed-2.1-lite")),
+		},
+		ChapterImport: ChapterImportConfig{
+			AITimeout: parseTimeoutSeconds(utils.GetEnv("CHAPTER_IMPORT_AI_TIMEOUT", ""), 5*time.Minute),
 		},
 		CORS: CORSConfig{
 			AllowOrigins: parseOrigins(utils.GetEnv("CORS_ORIGINS", "*")),
@@ -251,4 +261,23 @@ func parseSessionTTL(raw string) time.Duration {
 		return ttl
 	}
 	return defaultTTL
+}
+
+// parseTimeoutSeconds 解析请求超时
+// 支持 Go duration 格式（如 "90s"、"5m"），纯数字按秒处理；为空或非法时回退默认值
+func parseTimeoutSeconds(raw string, fallback time.Duration) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		return fallback
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	return fallback
 }

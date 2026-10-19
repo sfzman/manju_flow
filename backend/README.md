@@ -87,6 +87,7 @@ docker-compose up -d
 | ARK_AGENT_PLAN_API_BASE_URL | 火山引擎 Ark Agent Plan 服务地址，用于 LLM / 图片理解 | https://ark.cn-beijing.volces.com/api/plan |
 | ARK_AGENT_PLAN_API_KEY | 火山引擎 Ark Agent Plan API Key | - |
 | ARK_AGENT_PLAN_SUPPORTED_LLM_MODELS | Ark Agent Plan 支持的 LLM 模型 ID 列表，逗号分隔或 JSON 数组；第一个为默认模型 | doubao-seed-2-1-pro-260628 |
+| CHAPTER_IMPORT_AI_TIMEOUT | 章节 txt 导入 AI 分析超时，Go duration 格式（如 5m）或纯秒数 | 5m |
 
 ## API 接口
 
