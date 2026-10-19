@@ -10,7 +10,6 @@ import {
   Send,
   AlertCircle,
   Upload,
-  History,
   Loader2,
   Download,
   Image as ImageIcon,
@@ -21,6 +20,9 @@ import { chapterApi, commentApi, downloadFile, fileApi, getFileUrl, videoApi } f
 import { CommentItem } from './CommentItem';
 import { Toast, useToast } from './Toast';
 import { ChapterTabBar } from './ChapterTabBar';
+import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { VersionHistoryMenu } from './VersionHistoryMenu';
+import { VersionPreviewModal } from './VersionPreviewModal';
 
 type ChapterVideoDetail = ChapterVideo & { versionCount?: number };
 
@@ -50,6 +52,9 @@ export const DeliverReview: React.FC<DeliverReviewProps> = ({ videoUrl, episode,
   const [versions, setVersions] = useState<ChapterVideoVersion[]>([]);
   const [loadingVideo, setLoadingVideo] = useState(false);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
+  const [versionPreview, setVersionPreview] = useState<{ url?: string; version?: number } | null>(null);
+  const [deleteVersionTarget, setDeleteVersionTarget] = useState<ChapterVideoVersion | null>(null);
+  const [deletingVersion, setDeletingVersion] = useState(false);
   const [uploadingOriginal, setUploadingOriginal] = useState(false);
   const [uploadingEditScript, setUploadingEditScript] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -127,6 +132,8 @@ export const DeliverReview: React.FC<DeliverReviewProps> = ({ videoUrl, episode,
       setComments([]);
       setCommentError(null);
       setCommentDraft('');
+      setVersionPreview(null);
+      setDeleteVersionTarget(null);
       return;
     }
     fetchVideoData(activeChapter.id);
@@ -582,6 +589,40 @@ export const DeliverReview: React.FC<DeliverReviewProps> = ({ videoUrl, episode,
     }
   };
 
+  // 预览指定历史版本：优先使用压缩预览版，缺失时回退原始视频
+  const handlePreviewVersion = (versionData: ChapterVideoVersion) => {
+    const raw = versionData.previewUrl || versionData.videoUrl;
+    const url = getFileUrl(raw, { redirect: true });
+    if (!url) {
+      showToast('该版本缺少可预览的视频链接', 'error');
+      return;
+    }
+    setVersionPreview({ url, version: versionData.version });
+    setVersionMenuOpen(false);
+  };
+
+  const handleDeleteVersion = async (target: ChapterVideoVersion) => {
+    if (!activeChapter?.id) return;
+    setDeletingVersion(true);
+    try {
+      await videoApi.deleteVersion(activeChapter.id, target.version);
+      if (versionPreview?.version === target.version) {
+        setVersionPreview(null);
+      }
+      await fetchVideoData(activeChapter.id);
+      setDeleteVersionTarget(null);
+      showToast(`版本 #${target.version} 已删除`, 'success');
+    } catch (err) {
+      console.error('Delete video version failed', err);
+      const msg = err instanceof Error && err.message.includes('current version')
+        ? '当前版本不可删除，请先切换到其他版本'
+        : '删除版本失败，请重试';
+      showToast(msg, 'error');
+    } finally {
+      setDeletingVersion(false);
+    }
+  };
+
   const handleDownloadOriginal = async () => {
     const raw = videoDetail?.videoUrl || videoUrl;
     if (!raw) {
@@ -658,7 +699,23 @@ export const DeliverReview: React.FC<DeliverReviewProps> = ({ videoUrl, episode,
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a]">
+    <div className="flex flex-col h-full bg-[#0a0a0a] relative">
+      {versionPreview && (
+        <VersionPreviewModal
+          url={versionPreview.url}
+          version={versionPreview.version}
+          onClose={() => setVersionPreview(null)}
+        />
+      )}
+      <DeleteConfirmDialog
+        isOpen={!!deleteVersionTarget}
+        title="删除历史版本"
+        message="版本 {name} 将从历史列表中移除，确认继续？"
+        itemName={deleteVersionTarget ? `#${deleteVersionTarget.version}` : ''}
+        isDeleting={deletingVersion}
+        onConfirm={() => deleteVersionTarget && handleDeleteVersion(deleteVersionTarget)}
+        onCancel={() => setDeleteVersionTarget(null)}
+      />
       <input
         ref={originalInputRef}
         type="file"
@@ -879,70 +936,32 @@ export const DeliverReview: React.FC<DeliverReviewProps> = ({ videoUrl, episode,
                         : hasEditScript ? '覆盖' : '上传'}
                     </button>
                   </div>
-                  <div className="relative">
-                    <button
-                      onClick={() => setVersionMenuOpen((prev) => !prev)}
-                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white text-[11px] rounded-lg border border-white/10 transition-all flex items-center gap-1"
-                    >
-                      <History size={14} /> 历史版本
-                    </button>
-                    {versionMenuOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setVersionMenuOpen(false)}
-                        />
-                        <div className="absolute right-0 mt-2 w-80 bg-[#0f0f0f] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden">
-                          <div className="px-3 py-2 border-b border-white/10 text-white/60 text-[11px]">
-                            <span>共 {versions.length} 个版本</span>
-                          </div>
-                          <div className="max-h-80 overflow-y-auto divide-y divide-white/10">
-                            {versions.length === 0 && (
-                              <div className="p-3 text-center text-white/40 text-[12px]">暂无历史版本</div>
-                            )}
-                            {versions.map((v) => {
-                              const time = v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN', { hour12: false }) : '';
-                              const hasPreview = !!v.previewUrl;
-                              const isCurrent = videoDetail?.videoVersion === v.version;
-                              return (
-                                <div
-                                  key={v.id}
-                                  className={`p-3 space-y-1 ${isCurrent ? 'bg-blue-600/10' : 'bg-transparent hover:bg-white/5'}`}
-                                >
-                                  <div className="flex items-center justify-between text-white/80">
-                                    <div>
-                                      <p className="text-sm font-semibold flex items-center gap-2">
-                                        版本 #{v.version}
-                                        {hasPreview && (
-                                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-200 border border-green-500/30">
-                                            含预览
-                                          </span>
-                                        )}
-                                      </p>
-                                      <div className="text-[11px] text-white/40">{time || '时间未知'}</div>
-                                    </div>
-                                    <div className="text-[10px] text-white/40">ID: {v.id}</div>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="text-[11px] text-white/50 space-x-2">
-                                      <span>原始 {formatBytes(v.fileSize)}</span>
-                                      <span>预览 {formatBytes(v.previewSize)}</span>
-                                    </div>
-                                    <button
-                                      onClick={() => handleRevert(v.version)}
-                                      className="text-[11px] px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/50"
-                                    >
-                                      设为当前
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </>
+                  <VersionHistoryMenu
+                    versions={versions}
+                    currentVersion={videoDetail?.videoVersion}
+                    open={versionMenuOpen}
+                    onOpenChange={setVersionMenuOpen}
+                    onPreview={handlePreviewVersion}
+                    previewVersion={versionPreview?.version ?? null}
+                    canPreview={(v) => Boolean(v.previewUrl || v.videoUrl)}
+                    onRevert={(v) => handleRevert(v.version)}
+                    revertDisabled={loadingVideo}
+                    onDelete={setDeleteVersionTarget}
+                    deletingVersion={deletingVersion && deleteVersionTarget ? deleteVersionTarget.version : null}
+                    renderVersionBadge={(v) =>
+                      v.previewUrl ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-200 border border-green-500/30">
+                          含预览
+                        </span>
+                      ) : null
+                    }
+                    renderVersionMeta={(v) => (
+                      <div className="text-[11px] text-white/50 space-x-2">
+                        <span>原始 {formatBytes(v.fileSize)}</span>
+                        <span>预览 {formatBytes(v.previewSize)}</span>
+                      </div>
                     )}
-                  </div>
+                  />
                 </div>
               </div>
 

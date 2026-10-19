@@ -158,6 +158,7 @@ func Setup(r *gin.Engine) {
 				animations.POST("/:animationId/generation-tasks/:taskId/poll", animationHandler.PollGenerationTask) // 轮询生成任务状态
 				animations.GET("/:animationId/versions", animationHandler.ListVersions)                             // 动画版本历史
 				animations.PUT("/:animationId/revert/:version", animationHandler.Revert)                            // 回滚动画
+				animations.DELETE("/:animationId/versions/:version", animationHandler.DeleteVersion)               // 软删除动画历史版本
 			}
 
 			// 音频轨道路由（支持多音频）
@@ -187,6 +188,7 @@ func Setup(r *gin.Engine) {
 				video.PUT("/edit-script", videoHandler.UploadEditScript) // 上传/覆盖剪辑脚本 ZIP
 				video.GET("/versions", videoHandler.ListVersions)        // 版本历史
 				video.PUT("/revert/:version", videoHandler.Revert)       // 回滚版本
+				video.DELETE("/versions/:version", videoHandler.DeleteVersion) // 软删除历史版本
 			}
 
 			// 场景参考资料路由

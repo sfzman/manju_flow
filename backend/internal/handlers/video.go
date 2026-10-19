@@ -143,9 +143,9 @@ func (h *VideoHandler) Upload(c *gin.Context) {
 		}
 	}
 
-	// 获取当前最大版本号
+	// 获取当前最大版本号（含软删除版本，避免版本号复用）
 	var maxVersion int
-	tx.Model(&models.ChapterVideoVersion{}).
+	tx.Unscoped().Model(&models.ChapterVideoVersion{}).
 		Where("chapter_video_id = ?", video.ID).
 		Select("COALESCE(MAX(version), 0)").
 		Scan(&maxVersion)
@@ -645,6 +645,80 @@ func (h *VideoHandler) Revert(c *gin.Context) {
 	db.Where("chapter_id = ?", chapter.ID).First(&video)
 
 	c.JSON(http.StatusOK, video)
+}
+
+// DeleteVersion 软删除视频历史版本
+// @Summary 软删除视频历史版本
+// @Description 软删除指定历史版本（当前生效版本不可删除，删除后不再出现在版本列表中）
+// @Tags video
+// @Accept json
+// @Produce json
+// @Param chapterId path int true "章节ID"
+// @Param version path int true "版本号"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/chapters/{chapterId}/video/versions/{version} [delete]
+func (h *VideoHandler) DeleteVersion(c *gin.Context) {
+	chapterId := c.Param("chapterId")
+	versionStr := c.Param("version")
+	targetVersion, err := strconv.Atoi(versionStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid version number",
+		})
+		return
+	}
+
+	db := database.GetDB()
+
+	// 检查章节是否存在
+	var chapter models.Chapter
+	if err := db.First(&chapter, chapterId).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Chapter not found",
+		})
+		return
+	}
+
+	// 获取章节视频
+	var video models.ChapterVideo
+	if err := db.Where("chapter_id = ?", chapter.ID).First(&video).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Video not found",
+		})
+		return
+	}
+
+	// 获取目标版本
+	var version models.ChapterVideoVersion
+	if err := db.Where("chapter_video_id = ? AND version = ?",
+		video.ID, targetVersion).First(&version).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Version not found",
+		})
+		return
+	}
+
+	// 当前生效版本不可删除，避免交付记录指向被删除的版本
+	if video.VideoVersion == version.Version {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Cannot delete the current version",
+		})
+		return
+	}
+
+	// 模型带 gorm.DeletedAt，这里执行的是软删除
+	if err := db.Delete(&version).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to delete version",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Version deleted successfully",
+	})
 }
 
 // Delete 删除章节视频（包括所有版本）

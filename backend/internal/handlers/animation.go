@@ -915,8 +915,9 @@ func (h *AnimationHandler) saveAnimationVersion(
 		return fmt.Errorf("generated video is empty")
 	}
 
+	// 含软删除版本，避免版本号复用
 	var maxVersion int
-	db.Model(&models.SceneAnimationVersion{}).
+	db.Unscoped().Model(&models.SceneAnimationVersion{}).
 		Where("scene_animation_id = ?", animation.ID).
 		Select("COALESCE(MAX(version), 0)").
 		Scan(&maxVersion)
@@ -3220,9 +3221,9 @@ func (h *AnimationHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 获取当前最大版本号
+	// 获取当前最大版本号（含软删除版本，避免版本号复用）
 	var maxVersion int
-	db.Model(&models.SceneAnimationVersion{}).
+	db.Unscoped().Model(&models.SceneAnimationVersion{}).
 		Where("scene_animation_id = ?", animation.ID).
 		Select("COALESCE(MAX(version), 0)").
 		Scan(&maxVersion)
@@ -3688,4 +3689,80 @@ func (h *AnimationHandler) Revert(c *gin.Context) {
 	db.First(&animation, animation.ID)
 
 	c.JSON(http.StatusOK, animation)
+}
+
+// DeleteVersion 软删除动画历史版本
+// @Summary 软删除动画历史版本
+// @Description 软删除指定历史版本（当前生效版本不可删除，删除后不再出现在版本列表中）
+// @Tags animation
+// @Accept json
+// @Produce json
+// @Param sceneId path int true "场景ID"
+// @Param animationId path int true "动画ID"
+// @Param version path int true "版本号"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/scenes/{sceneId}/animations/{animationId}/versions/{version} [delete]
+func (h *AnimationHandler) DeleteVersion(c *gin.Context) {
+	sceneId := c.Param("sceneId")
+	animationId := c.Param("animationId")
+	versionStr := c.Param("version")
+	targetVersion, err := strconv.Atoi(versionStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid version number",
+		})
+		return
+	}
+
+	db := database.GetDB()
+
+	// 检查场景是否存在
+	var scene models.Scene
+	if err := db.First(&scene, sceneId).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Scene not found",
+		})
+		return
+	}
+
+	// 检查动画是否存在
+	var animation models.SceneAnimation
+	if err := db.Where("id = ? AND scene_id = ?", animationId, scene.ID).First(&animation).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Animation not found",
+		})
+		return
+	}
+
+	// 获取目标版本
+	var version models.SceneAnimationVersion
+	if err := db.Where("scene_animation_id = ? AND version = ?",
+		animation.ID, targetVersion).First(&version).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Version not found",
+		})
+		return
+	}
+
+	// 当前生效版本不可删除，避免动画记录指向被删除的版本
+	if animation.AnimationVersion == version.Version {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Cannot delete the current version",
+		})
+		return
+	}
+
+	// 模型带 gorm.DeletedAt，这里执行的是软删除
+	if err := db.Delete(&version).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to delete version",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Version deleted successfully",
+	})
 }

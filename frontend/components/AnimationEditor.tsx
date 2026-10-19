@@ -16,7 +16,6 @@ import {
   MonitorPlay,
   Layout,
   Type,
-  History,
   Plus,
   Pencil,
   Trash2,
@@ -38,6 +37,8 @@ import { DEFAULT_SCENE_THUMB, STATUS_MAP } from '../constants';
 import { Toast, useToast } from './Toast';
 import { ChapterTabBar } from './ChapterTabBar';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { VersionHistoryMenu } from './VersionHistoryMenu';
+import { VersionPreviewModal } from './VersionPreviewModal';
 import { useImageOrientation } from './useImageOrientation';
 
 interface AnimationEditorProps {
@@ -423,12 +424,13 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
   const [appendArtStyle, setAppendArtStyle] = useState(true);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [resolvingVersion, setResolvingVersion] = useState(false);
-  const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [previewSource, setPreviewSource] = useState<{ url?: string; version?: number } | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [creatingClip, setCreatingClip] = useState(false);
   const [newClipName, setNewClipName] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<SceneAnimation | null>(null);
+  const [deleteVersionTarget, setDeleteVersionTarget] = useState<SceneAnimationVersion | null>(null);
+  const [deletingVersion, setDeletingVersion] = useState(false);
   const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
   const [hoveredPromptMention, setHoveredPromptMention] = useState<{ mention: PromptAssetMention; x: number; y: number } | null>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(280);
@@ -533,6 +535,7 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
       setRenameDraft('');
       setCreatingClip(false);
       setNewClipName('');
+      setDeleteVersionTarget(null);
       resetGenerationDraft(undefined);
       return;
     }
@@ -543,6 +546,7 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
     setPreviewSource(null);
     setVersionMenuOpen(false);
     setDeleteTarget(null);
+    setDeleteVersionTarget(null);
     setRenameDraft('');
     setCreatingClip(false);
     setNewClipName('');
@@ -690,18 +694,6 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
   }, [bookId]);
 
   useEffect(() => {
-    if (!activeScene?.id) {
-      if (previewVideoRef.current) {
-        previewVideoRef.current.pause();
-        previewVideoRef.current.currentTime = 0;
-      }
-      setPreviewSource(null);
-      return;
-    }
-    if (previewVideoRef.current) {
-      previewVideoRef.current.pause();
-      previewVideoRef.current.currentTime = 0;
-    }
     setPreviewSource(null);
   }, [activeScene?.id]);
 
@@ -770,11 +762,8 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
   }, [selectedAnimationId, animations]);
 
   useEffect(() => {
-    if (previewVideoRef.current) {
-      previewVideoRef.current.pause();
-      previewVideoRef.current.currentTime = 0;
-    }
     setPreviewSource(null);
+    setDeleteVersionTarget(null);
     setPollingTaskId(null);
     resetGenerationDraft(activeScene);
   }, [activeScene, resetGenerationDraft, selectedAnimationId]);
@@ -1729,9 +1718,8 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
     };
   }, [activeScene?.id, currentGenerationTasks, pollingTaskId, resolveVersions, selectedAnimationId, showToast]);
 
-  const handlePreviewVersion = async (version: number) => {
+  const handlePreviewVersion = (versionData: SceneAnimationVersion) => {
     if (!selectedAnimationId) return;
-    const versionData = currentVersions.find(v => v.version === version);
     if (!versionData?.videoUrl) {
       showToast('该版本缺少视频链接，无法预览', 'error');
       return;
@@ -1765,6 +1753,30 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
     } finally {
       setLoadingAnimation(false);
       setIsPlaying(false);
+    }
+  };
+
+  const handleDeleteVersion = async (target: SceneAnimationVersion) => {
+    if (!activeScene?.id || !selectedAnimationId) return;
+    setDeletingVersion(true);
+    try {
+      await animationApi.deleteVersion(activeScene.id, selectedAnimationId, target.version);
+      if (previewSource?.version === target.version) {
+        setPreviewSource(null);
+      }
+      const versionsRes = await animationApi.listVersions(activeScene.id, selectedAnimationId);
+      await resolveVersions(selectedAnimationId, versionsRes.data || []);
+      setDeleteVersionTarget(null);
+      setVersionMenuOpen(false);
+      showToast(`版本 #${target.version} 已删除`, 'success');
+    } catch (err) {
+      console.error('Delete animation version failed', err);
+      const msg = err instanceof Error && err.message.includes('current version')
+        ? '当前版本不可删除，请先切换到其他版本'
+        : '删除版本失败，请重试';
+      showToast(msg, 'error');
+    } finally {
+      setDeletingVersion(false);
     }
   };
 
@@ -1907,10 +1919,6 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
   };
 
   const closePreview = () => {
-    if (previewVideoRef.current) {
-      previewVideoRef.current.pause();
-      previewVideoRef.current.currentTime = 0;
-    }
     setPreviewSource(null);
   };
 
@@ -2375,36 +2383,11 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
   return (
     <div className="flex flex-col h-full bg-[#0f0f0f] relative">
       {previewSource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-black/70" onClick={closePreview} />
-          <div className="relative w-full max-w-4xl bg-[#0b0b0b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 text-white">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <MonitorPlay size={16} className="text-blue-400" />
-                <span>版本 #{previewSource.version ?? '—'} 预览</span>
-              </div>
-              <button
-                onClick={closePreview}
-                className="text-white/60 hover:text-white rounded-full p-1 hover:bg-white/10 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="aspect-video bg-black">
-              {previewSource.url ? (
-                <video
-                  ref={previewVideoRef}
-                  src={previewSource.url}
-                  className="w-full h-full object-contain"
-                  controls
-                  autoPlay
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-white/50 text-sm">无预览链接</div>
-              )}
-            </div>
-          </div>
-        </div>
+        <VersionPreviewModal
+          url={previewSource.url}
+          version={previewSource.version}
+          onClose={closePreview}
+        />
       )}
       <Toast toast={toast} onClose={hideToast} />
       {audioTrimmerModal}
@@ -2505,6 +2488,15 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
           itemName={deleteTarget?.name || '未命名'}
           onConfirm={() => deleteTarget && handleDeleteClip(deleteTarget.id)}
           onCancel={() => setDeleteTarget(null)}
+        />
+        <DeleteConfirmDialog
+          isOpen={!!deleteVersionTarget}
+          title="删除历史版本"
+          message="版本 {name} 将从历史列表中移除，确认继续？"
+          itemName={deleteVersionTarget ? `#${deleteVersionTarget.version}` : ''}
+          isDeleting={deletingVersion}
+          onConfirm={() => deleteVersionTarget && handleDeleteVersion(deleteVersionTarget)}
+          onCancel={() => setDeleteVersionTarget(null)}
         />
         {/* 左侧：剧本参考区（与分镜风格统一） */}
         <div
@@ -2718,87 +2710,20 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
                         </button>
                         <span className="text-[11px] text-white/30">当前版本 #{currentVersionLabel}</span>
                       </div>
-                      <div className="flex items-center gap-2 relative">
-                        <div className="relative">
-                          <button
-                            disabled={!currentVersions.length}
-                            onClick={() => setVersionMenuOpen(prev => !prev)}
-                            className={`flex items-center gap-1 text-[11px] px-3 py-1 rounded-lg border transition-all ${
-                              currentVersions.length
-                                ? 'bg-white/5 hover:bg-white/10 text-white/70 border-white/10'
-                                : 'bg-white/5 text-white/30 border-white/10 cursor-not-allowed'
-                            }`}
-                          >
-                            <History size={12} /> 历史版本
-                          </button>
-                          {versionMenuOpen && currentVersions.length > 0 && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-10"
-                                onClick={() => setVersionMenuOpen(false)}
-                              />
-                              <div className="absolute right-0 mt-2 w-72 bg-[#0f0f0f] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden">
-                                <div className="px-3 py-2 border-b border-white/10 text-white/60 text-[11px]">
-                                  <span>共 {currentVersions.length} 个版本</span>
-                                </div>
-                                <div className="max-h-80 overflow-y-auto divide-y divide-white/10">
-                                  {currentVersions.map(version => {
-                                    const time = version.createdAt ? new Date(version.createdAt).toLocaleString('zh-CN', { hour12: false }) : '';
-                                    const isActive = selectedAnimation?.animationVersion === version.version;
-                                    const isPreviewing = previewSource?.version === version.version;
-                                    return (
-                                      <div
-                                        key={version.id}
-                                        className={`p-3 space-y-1 ${isActive ? 'bg-blue-600/10' : 'bg-transparent hover:bg-white/5'}`}
-                                      >
-                                        <div className="flex items-center justify-between text-white/80">
-                                          <div>
-                                            <p className="text-sm font-semibold">版本 #{version.version}</p>
-                                            <div className="text-[11px] text-white/40">{time || '时间未知'}</div>
-                                          </div>
-                                          <div className="text-[10px] text-white/40">ID: {version.id}</div>
-                                        </div>
-                                        <div className="flex items-center justify-between gap-2">
-                                          <button
-                                            onClick={() => {
-                                              handlePreviewVersion(version.version);
-                                            }}
-                                            className={`text-[11px] px-2 py-1 rounded-lg border flex items-center gap-1 transition-all ${
-                                              isPreviewing
-                                                ? 'bg-blue-600/20 border-blue-500/50 text-white'
-                                                : 'bg-white/10 hover:bg-white/20 border-white/10 text-white/80'
-                                            }`}
-                                          >
-                                            <MonitorPlay size={12} />
-                                            {isPreviewing ? '预览中' : '预览'}
-                                          </button>
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              onClick={() => handleRevertVersion(version.version)}
-                                              className="text-[11px] px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/50"
-                                              disabled={loadingAnimation}
-                                            >
-                                              设为当前
-                                            </button>
-                                            <div className="relative group">
-                                              <Info size={14} className="text-white/30" />
-                                              <div className="absolute right-0 top-6 w-48 p-2 rounded-md bg-black/80 border border-white/10 text-[11px] text-white/70 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
-                                                将预览中的版本设为交付版本（默认最新）
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                  {!currentVersions.length && (
-                                    <div className="p-3 text-center text-white/40 text-[12px]">暂无历史版本</div>
-                                  )}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <VersionHistoryMenu
+                          versions={currentVersions}
+                          currentVersion={normalizedVersionNumber}
+                          open={versionMenuOpen}
+                          onOpenChange={setVersionMenuOpen}
+                          onPreview={handlePreviewVersion}
+                          previewVersion={previewSource?.version ?? null}
+                          canPreview={(v) => Boolean(v.videoUrl)}
+                          onRevert={(v) => handleRevertVersion(v.version)}
+                          revertDisabled={loadingAnimation}
+                          onDelete={setDeleteVersionTarget}
+                          deletingVersion={deletingVersion && deleteVersionTarget ? deleteVersionTarget.version : null}
+                        />
                         <button
                           onClick={() => setDeleteTarget(selectedAnimation)}
                           className="px-2.5 py-1.5 text-[11px] rounded-lg bg-white/5 border border-white/10 text-red-300 hover:text-white hover:border-red-500/40 hover:bg-red-500/20 flex items-center gap-1"

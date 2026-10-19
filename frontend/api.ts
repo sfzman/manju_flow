@@ -866,6 +866,10 @@ export const animationApi = {
     request<SceneAnimation>(`/api/scenes/${sceneId}/animations/${animationId}/revert/${version}`, {
       method: 'PUT',
     }),
+  deleteVersion: (sceneId: number, animationId: number, version: number) =>
+    request(`/api/scenes/${sceneId}/animations/${animationId}/versions/${version}`, {
+      method: 'DELETE',
+    }),
 };
 
 // 音频后期 API（多音轨）
@@ -1051,6 +1055,10 @@ export const videoApi = {
   revert: (chapterId: number, version: number) =>
     request<ChapterVideo>(`/api/chapters/${chapterId}/video/revert/${version}`, {
       method: 'PUT',
+    }),
+  deleteVersion: (chapterId: number, version: number) =>
+    request(`/api/chapters/${chapterId}/video/versions/${version}`, {
+      method: 'DELETE',
     }),
   delete: (chapterId: number) =>
     request(`/api/chapters/${chapterId}/video`, {
