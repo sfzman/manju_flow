@@ -141,7 +141,7 @@ func Load() *Config {
 		ArkAgentPlan: ArkAgentPlanConfig{
 			APIBaseURL:         utils.GetEnv("ARK_AGENT_PLAN_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/plan"),
 			APIKey:             utils.GetEnv("ARK_AGENT_PLAN_API_KEY", ""),
-			SupportedLLMModels: parseStringList(utils.GetEnv("ARK_AGENT_PLAN_SUPPORTED_LLM_MODELS", "doubao-seed-2-1-pro-260628")),
+			SupportedLLMModels: parseStringList(utils.GetEnv("ARK_AGENT_PLAN_SUPPORTED_LLM_MODELS", "doubao-seed-2.1-lite")),
 		},
 		CORS: CORSConfig{
 			AllowOrigins: parseOrigins(utils.GetEnv("CORS_ORIGINS", "*")),
