@@ -33,7 +33,7 @@ const (
 	// chapterImportLeaseMargin 是租约超出 AI 分析耗时的余量，覆盖分析完成后的落库阶段。
 	chapterImportLeaseMargin = 2 * time.Minute
 	// defaultChapterImportAITimeout 是未加载配置时的兜底 AI 分析超时。
-	defaultChapterImportAITimeout = 5 * time.Minute
+	defaultChapterImportAITimeout = 10 * time.Minute
 )
 
 var (

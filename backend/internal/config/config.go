@@ -151,7 +151,7 @@ func Load() *Config {
 			SupportedLLMModels: parseStringList(utils.GetEnv("ARK_AGENT_PLAN_SUPPORTED_LLM_MODELS", "doubao-seed-2.1-lite")),
 		},
 		ChapterImport: ChapterImportConfig{
-			AITimeout: parseTimeoutSeconds(utils.GetEnv("CHAPTER_IMPORT_AI_TIMEOUT", ""), 5*time.Minute),
+			AITimeout: parseTimeoutSeconds(utils.GetEnv("CHAPTER_IMPORT_AI_TIMEOUT", ""), 10*time.Minute),
 		},
 		CORS: CORSConfig{
 			AllowOrigins: parseOrigins(utils.GetEnv("CORS_ORIGINS", "*")),
