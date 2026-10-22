@@ -94,6 +94,7 @@ export interface Book {
   title: string;
   author: string;
   cover: string;
+  coverLandscape: string;
   description: string;
   outline: string;
   artStyle: string;
@@ -118,6 +119,7 @@ export interface CreateBookRequest {
   title: string;
   author: string;
   cover?: string;
+  coverLandscape?: string;
   description?: string;
   outline?: string;
   artStyle?: string;
@@ -356,6 +358,7 @@ export function bookToProject(book: Book): Project {
     title: book.title,
     author: book.author,
     cover: book.cover || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1000&auto=format&fit=crop',
+    coverLandscape: book.coverLandscape || '',
     productionStatus: statusMap[book.adaptationStatus],
     episodes: [], // 初始化为空数组，后续可以从其他 API 获取
     assignedWriter: book.adaptedBy || undefined,

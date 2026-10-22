@@ -134,6 +134,7 @@ func (h *BookHandler) Create(c *gin.Context) {
 		Title:               req.Title,
 		Author:              req.Author,
 		Cover:               req.Cover,
+		CoverLandscape:      req.CoverLandscape,
 		Description:         req.Description,
 		Outline:             req.Outline,
 		ArtStyle:            req.ArtStyle,
@@ -219,6 +220,7 @@ func (h *BookHandler) Update(c *gin.Context) {
 	book.Title = req.Title
 	book.Author = req.Author
 	book.Cover = req.Cover
+	book.CoverLandscape = req.CoverLandscape
 	book.Description = req.Description
 	book.OriginalTextKey = req.OriginalTextKey
 	book.OriginalTextPreview = req.OriginalTextPreview

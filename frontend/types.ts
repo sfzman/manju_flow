@@ -236,6 +236,7 @@ export interface Project {
   title: string;
   author: string;
   cover: string;
+  coverLandscape?: string;
   productionStatus: Status;
   episodes: Episode[];
   assignedWriter?: string;

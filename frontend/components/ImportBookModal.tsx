@@ -11,6 +11,126 @@ interface ImportBookModalProps {
   isLoading?: boolean;
 }
 
+type CoverField = 'cover' | 'coverLandscape';
+
+interface CoverUploadBlockProps {
+  /** 区块标题，如「封面图片（竖版 9:16）」 */
+  label: string;
+  /** 按钮文案短名，如「封面」「横版封面」 */
+  name: string;
+  hint: string;
+  value: string;
+  previewBoxClassName: string;
+  isUploading: boolean;
+  onSelectFile: (file: File | null | undefined) => void;
+  onRemove: () => void;
+}
+
+// 封面上传块（竖版/横版通用）：预览、选择文件、拖拽上传
+const CoverUploadBlock: React.FC<CoverUploadBlockProps> = ({
+  label,
+  name,
+  hint,
+  value,
+  previewBoxClassName,
+  isUploading,
+  onSelectFile,
+  onRemove,
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    onSelectFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (isUploading) return;
+    onSelectFile(e.dataTransfer.files?.[0]);
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
+        {label}
+      </label>
+      <div
+        className={`flex items-start gap-4 p-4 rounded-xl border bg-gradient-to-r from-white/5 via-white/5 to-blue-900/10 transition-colors ${
+          isDragOver ? 'border-blue-500/60 bg-blue-900/20' : 'border-white/10'
+        }`}
+        onDragOver={e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setIsDragOver(true);
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleDrop}
+      >
+        <div className={`${previewBoxClassName} rounded-lg overflow-hidden border border-white/10 bg-white/5 relative flex items-center justify-center text-white/30 text-[11px]`}>
+          {value ? (
+            <>
+              <img src={value} alt={`${name}预览`} className="w-full h-full object-cover" />
+              <span className="absolute left-2 top-2 px-2 py-1 rounded-md bg-black/50 text-[10px] font-bold uppercase tracking-widest text-white/70">
+                Preview
+              </span>
+            </>
+          ) : (
+            '暂无封面'
+          )}
+        </div>
+        <div className="flex-1 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-blue-900/30"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>上传中...</span>
+                </>
+              ) : (
+                <>
+                  <Upload size={16} />
+                  <span>上传{name}</span>
+                </>
+              )}
+            </button>
+            {value && (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="px-4 py-2 rounded-lg border border-white/10 text-white/70 font-semibold hover:bg-white/10 transition-all"
+              >
+                移除{name}
+              </button>
+            )}
+          </div>
+          <p className="text-white/40 text-xs leading-relaxed">
+            {hint}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   isOpen,
   onClose,
@@ -23,6 +143,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     title: '',
     author: '',
     cover: '',
+    coverLandscape: '',
     description: '',
     originalTextKey: '',
     originalTextPreview: '',
@@ -30,11 +151,10 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   const [formData, setFormData] = useState<CreateBookRequest>(initialData || defaultFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [isUploadingCoverLandscape, setIsUploadingCoverLandscape] = useState(false);
   const [isUploadingOriginalText, setIsUploadingOriginalText] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isCoverDragOver, setIsCoverDragOver] = useState(false);
   const [isOriginalDragOver, setIsOriginalDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const originalTextInputRef = useRef<HTMLInputElement>(null);
 
   const isEditMode = mode === 'edit';
@@ -42,7 +162,11 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       const hydrated = initialData
-        ? { ...initialData, cover: ensureHttpsUrl(initialData.cover) }
+        ? {
+            ...initialData,
+            cover: ensureHttpsUrl(initialData.cover),
+            coverLandscape: ensureHttpsUrl(initialData.coverLandscape),
+          }
         : defaultFormData;
       setFormData(hydrated);
       setError(null);
@@ -61,7 +185,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
       setError('请输入作者名称');
       return;
     }
-    if (isUploadingCover || isUploadingOriginalText) {
+    if (isUploadingCover || isUploadingCoverLandscape || isUploadingOriginalText) {
       setError('文件上传中，请稍候');
       return;
     }
@@ -86,41 +210,29 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleCoverUpload = async (file?: File | null) => {
+  const handleCoverUpload = async (field: CoverField, file?: File | null) => {
     if (!file) return;
-    setIsUploadingCover(true);
+    const wasUploading = field === 'cover' ? isUploadingCover : isUploadingCoverLandscape;
+    if (wasUploading) return;
+    if (field === 'cover') {
+      setIsUploadingCover(true);
+    } else {
+      setIsUploadingCoverLandscape(true);
+    }
     setError(null);
     try {
       const res = await fileApi.upload(file, 'public');
-      setFormData(prev => ({ ...prev, cover: ensureHttpsUrl(res.url) || res.key }));
+      setFormData(prev => ({ ...prev, [field]: ensureHttpsUrl(res.url) || res.key }));
     } catch (err) {
       console.error('Failed to upload cover', err);
-      setError(err instanceof Error ? err.message : '封面上传失败，请稍后重试');
+      const fallback = field === 'cover' ? '封面上传失败，请稍后重试' : '横版封面上传失败，请稍后重试';
+      setError(err instanceof Error ? err.message : fallback);
     } finally {
-      setIsUploadingCover(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      if (field === 'cover') {
+        setIsUploadingCover(false);
+      } else {
+        setIsUploadingCoverLandscape(false);
       }
-      setIsCoverDragOver(false);
-    }
-  };
-
-  const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    handleCoverUpload(file);
-  };
-
-  const handleCoverDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isUploadingCover) {
-      setIsCoverDragOver(false);
-      return;
-    }
-    const file = e.dataTransfer.files?.[0];
-    handleCoverUpload(file);
-    if (!file) {
-      setIsCoverDragOver(false);
     }
   };
 
@@ -247,78 +359,29 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
               />
             </div>
 
-            {/* 封面 */}
-            <div>
-              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
-                封面图片
-              </label>
-              <div
-                className={`flex items-start gap-4 p-4 rounded-xl border bg-gradient-to-r from-white/5 via-white/5 to-blue-900/10 transition-colors ${
-                  isCoverDragOver ? 'border-blue-500/60 bg-blue-900/20' : 'border-white/10'
-                }`}
-                onDragOver={e => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'copy';
-                  setIsCoverDragOver(true);
-                }}
-                onDragLeave={() => setIsCoverDragOver(false)}
-                onDrop={handleCoverDrop}
-              >
-                <div className="w-24 h-32 rounded-lg overflow-hidden border border-white/10 bg-white/5 relative flex items-center justify-center text-white/30 text-[11px]">
-                  {formData.cover ? (
-                    <>
-                      <img src={formData.cover} alt="封面预览" className="w-full h-full object-cover" />
-                      <span className="absolute left-2 top-2 px-2 py-1 rounded-md bg-black/50 text-[10px] font-bold uppercase tracking-widest text-white/70">
-                        Preview
-                      </span>
-                    </>
-                  ) : (
-                    '暂无封面'
-                  )}
-                </div>
-                <div className="flex-1 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleCoverFileChange}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploadingCover}
-                      className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-blue-900/30"
-                    >
-                      {isUploadingCover ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          <span>上传中...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload size={16} />
-                          <span>上传封面</span>
-                        </>
-                      )}
-                    </button>
-                    {formData.cover && (
-                      <button
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, cover: '' }))}
-                        className="px-4 py-2 rounded-lg border border-white/10 text-white/70 font-semibold hover:bg-white/10 transition-all"
-                      >
-                        移除封面
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-white/40 text-xs leading-relaxed">
-                    上传图片后会自动填充封面链接并保存到作品信息，支持拖拽到此区域。建议尺寸 600×900，JPG/PNG 均可。
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* 封面（竖版） */}
+            <CoverUploadBlock
+              label="封面图片（竖版 9:16）"
+              name="封面"
+              hint="竖版封面，用于作品卡片展示。上传图片后会自动填充封面链接并保存到作品信息，支持拖拽到此区域。建议尺寸 600×900，JPG/PNG 均可。"
+              value={formData.cover}
+              previewBoxClassName="w-24 h-32"
+              isUploading={isUploadingCover}
+              onSelectFile={file => handleCoverUpload('cover', file)}
+              onRemove={() => setFormData(prev => ({ ...prev, cover: '' }))}
+            />
+
+            {/* 封面（横版） */}
+            <CoverUploadBlock
+              label="横版封面（16:9）"
+              name="横版封面"
+              hint="横版封面，用于横屏场景展示（可选）。上传图片后自动保存到作品信息，支持拖拽到此区域。建议尺寸 1280×720，JPG/PNG 均可。"
+              value={formData.coverLandscape}
+              previewBoxClassName="w-32 h-24"
+              isUploading={isUploadingCoverLandscape}
+              onSelectFile={file => handleCoverUpload('coverLandscape', file)}
+              onRemove={() => setFormData(prev => ({ ...prev, coverLandscape: '' }))}
+            />
 
             {/* 简介 */}
             <div>
@@ -420,7 +483,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting || isUploadingCover || isUploadingOriginalText}
+                disabled={isSubmitting || isUploadingCover || isUploadingCoverLandscape || isUploadingOriginalText}
                 className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (

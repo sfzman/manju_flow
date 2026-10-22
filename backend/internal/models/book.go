@@ -18,17 +18,18 @@ const (
 
 // Book 作品模型。
 type Book struct {
-	ID     uint   `gorm:"primaryKey" json:"id"`
-	Title  string `gorm:"size:255;not null" json:"title"`
-	Author string `gorm:"size:100;not null" json:"author"`
-	Cover  string `gorm:"size:500" json:"cover"`
+	ID             uint   `gorm:"primaryKey" json:"id"`
+	Title          string `gorm:"size:255;not null" json:"title"`
+	Author         string `gorm:"size:100;not null" json:"author"`
+	Cover          string `gorm:"size:500" json:"cover"`          // 竖版封面 URL（9:16）
+	CoverLandscape string `gorm:"size:500" json:"coverLandscape"` // 横版封面 URL（16:9）
 	// Deprecated: 仅保留数据库列以兼容历史数据，业务不得再依赖该字段。
 	Type                string           `gorm:"size:20;not null;default:'NOVEL';comment:Deprecated - work category is no longer used" json:"-"`
 	Description         string           `gorm:"type:text" json:"description"`
 	AdaptationStatus    AdaptationStatus `gorm:"size:20;default:'NONE'" json:"adaptationStatus"`
 	AdaptedBy           string           `gorm:"size:100" json:"adaptedBy"` // 正在改编此作品的编剧
 	ChapterCount        int              `gorm:"default:0" json:"chapterCount"`
-	Outline             string           `gorm:"type:text" json:"outline"` // 大纲（纯文本）
+	Outline             string           `gorm:"type:text" json:"outline"`  // 大纲（纯文本）
 	ArtStyle            string           `gorm:"type:text" json:"artStyle"` // 画风提示词（与作品一对一，可选）
 	OriginalTextKey     string           `gorm:"size:500" json:"originalTextKey"`
 	OriginalTextPreview string           `gorm:"type:text" json:"originalTextPreview"`
@@ -56,6 +57,7 @@ type CreateBookRequest struct {
 	Title               string `json:"title" binding:"required"`
 	Author              string `json:"author" binding:"required"`
 	Cover               string `json:"cover"`
+	CoverLandscape      string `json:"coverLandscape"`
 	Description         string `json:"description"`
 	Outline             string `json:"outline"`
 	ArtStyle            string `json:"artStyle"`
