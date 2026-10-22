@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { CreateBookRequest, ensureHttpsUrl, fileApi } from '../api';
+import { Toast, useToast } from './Toast';
 
 interface ImportBookModalProps {
   isOpen: boolean;
@@ -155,7 +156,9 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   const [isUploadingOriginalText, setIsUploadingOriginalText] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOriginalDragOver, setIsOriginalDragOver] = useState(false);
+  const [autoSaveQueued, setAutoSaveQueued] = useState(false);
   const originalTextInputRef = useRef<HTMLInputElement>(null);
+  const { toast, showToast, hideToast } = useToast();
 
   const isEditMode = mode === 'edit';
 
@@ -170,8 +173,43 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
         : defaultFormData;
       setFormData(hydrated);
       setError(null);
+      hideToast();
     }
   }, [isOpen, initialData]);
+
+  // 弹窗关闭期间到达的上传完成事件不应触发自动保存
+  useEffect(() => {
+    if (!isOpen && autoSaveQueued) {
+      setAutoSaveQueued(false);
+    }
+  }, [isOpen, autoSaveQueued]);
+
+  // 编辑模式：上传成功后自动保存一次，避免用户上传后未点保存就关闭弹窗导致改动丢失。
+  // 多个文件并发上传时等全部完成合并为一次保存；创建模式尚无作品记录，不自动保存。
+  useEffect(() => {
+    if (!isOpen || !isEditMode || !autoSaveQueued) return;
+    if (isUploadingCover || isUploadingCoverLandscape || isUploadingOriginalText) return;
+    setAutoSaveQueued(false);
+    // 表单不完整时不自动保存，由手动提交统一校验提示
+    if (!formData.title.trim() || !formData.author.trim()) return;
+
+    // formData 取触发当次渲染的值，已包含刚上传成功的封面/原文
+    const data = formData;
+    const autoSave = async () => {
+      try {
+        await onSubmit(data);
+        showToast('已自动保存', 'success');
+      } catch (err) {
+        console.error('Failed to auto save book', err);
+        setError(
+          err instanceof Error && err.message
+            ? `自动保存失败：${err.message}，请点击「保存修改」重试`
+            : '自动保存失败，请点击「保存修改」重试'
+        );
+      }
+    };
+    autoSave();
+  }, [isOpen, isEditMode, autoSaveQueued, isUploadingCover, isUploadingCoverLandscape, isUploadingOriginalText]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,6 +261,9 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     try {
       const res = await fileApi.upload(file, 'public');
       setFormData(prev => ({ ...prev, [field]: ensureHttpsUrl(res.url) || res.key }));
+      if (isEditMode) {
+        setAutoSaveQueued(true); // 编辑模式上传成功后自动保存一次
+      }
     } catch (err) {
       console.error('Failed to upload cover', err);
       const fallback = field === 'cover' ? '封面上传失败，请稍后重试' : '横版封面上传失败，请稍后重试';
@@ -256,6 +297,9 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
         originalTextKey: res.key,
         originalTextPreview: res.preview,
       }));
+      if (isEditMode) {
+        setAutoSaveQueued(true); // 编辑模式上传成功后自动保存一次
+      }
     } catch (err) {
       console.error('Failed to upload original text', err);
       setError(err instanceof Error ? err.message : '原文上传失败，请稍后重试');
@@ -299,6 +343,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
 
       {/* 弹窗内容 */}
       <div className="relative bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <Toast toast={toast} onClose={hideToast} />
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-3">
