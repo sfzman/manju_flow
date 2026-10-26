@@ -2289,18 +2289,33 @@ func animationPromptDraftPlaceholderNone(content string) bool {
 	return content == "无" || content == "（无）" || content == "(无)" || strings.EqualFold(content, "none")
 }
 
+// animationPromptDraftNormalizeName 将人物名中的全角括号归一为半角括号（LLM 常混用两种括号），
+// 并去除首尾空白
+func animationPromptDraftNormalizeName(name string) string {
+	name = strings.ReplaceAll(name, "（", "(")
+	name = strings.ReplaceAll(name, "）", ")")
+	return strings.TrimSpace(name)
+}
+
+// animationPromptDraftRootName 取人物名的根名：第一个 "(" 之前的部分（无括号时为整个名字）
+func animationPromptDraftRootName(name string) string {
+	if idx := strings.Index(name, "("); idx >= 0 {
+		return strings.TrimSpace(name[:idx])
+	}
+	return name
+}
+
 // animationPromptDraftSplitRosterNames 按顿号/逗号/分号等分隔名单内容，
-// 去掉 LLM 可能附带的引号与括号补充说明（如 "阿羽（女主）"）
+// 去掉 LLM 可能附带的引号与首尾空白，并把全角括号归一为半角括号；
+// 括号内容可能是名字的一部分（如 "林凡(成年)"），也可能只是模型附带的说明（如 "阿羽(旁白)"），
+// 无法在此区分，因此保留完整 token 交给匹配层解析
 func animationPromptDraftSplitRosterNames(content string) []string {
 	names := make([]string, 0, 4)
 	for _, name := range strings.FieldsFunc(content, func(r rune) bool {
 		return strings.ContainsRune("、，,；;/ \t", r)
 	}) {
 		name = strings.Trim(name, "\"'“”‘’ ")
-		if idx := strings.IndexAny(name, "（("); idx >= 0 {
-			name = name[:idx]
-		}
-		if name = strings.TrimSpace(name); name != "" {
+		if name = animationPromptDraftNormalizeName(name); name != "" {
 			names = append(names, name)
 		}
 	}
@@ -2358,12 +2373,19 @@ func extractAnimationPromptDraftCharacterNames(draft string) (string, []string, 
 	return strings.TrimSpace(strings.Join(kept, "\n")), appearingNames, speakingNames
 }
 
-// matchAnimationPromptDraftCharacters 在大纲人设名单中查找 LLM 标注的出场/说话人物：
-// 按名字精确匹配、保持 LLM 给出的顺序；重名人物取名单中排位靠前的一位；名单外的人物忽略
+// matchAnimationPromptDraftCharacters 在大纲人设名单中查找 LLM 标注的出场/说话人物，按优先级分层匹配：
+//  1. 精确匹配：名字与名单条目完全一致（比对前双方都做全角括号归一 + TrimSpace）
+//  2. 去尾部说明后匹配：从最后一个括号段开始逐层剥掉尾部括号（如 "林凡(成年)(男主)" → "林凡(成年)" → "林凡"），
+//     每层做精确匹配，命中即用
+//  3. 唯一根名兜底：剥到只剩根名（第一个 "(" 之前的部分）仍未命中时，仅当名单中该根名的条目恰好唯一才认；
+//     有多个变体（如 林凡(少年)/林凡(成年)/林凡(病房)）时不瞎猜，忽略该 token
+//
+// 匹配失败的 token 静默忽略（不抛错）；返回保持 LLM 给出的顺序；重名人物取名单中排位靠前的一位；
+// 同一角色去重（不同写法解析到同一名单条目时只挂一次）
 func matchAnimationPromptDraftCharacters(characters []models.Character, names []string) []models.Character {
 	byName := make(map[string]models.Character, len(characters))
 	for _, character := range characters {
-		name := strings.TrimSpace(character.Name)
+		name := animationPromptDraftNormalizeName(character.Name)
 		if name == "" {
 			continue
 		}
@@ -2373,19 +2395,63 @@ func matchAnimationPromptDraftCharacters(characters []models.Character, names []
 		byName[name] = character
 	}
 	matched := make([]models.Character, 0, len(names))
-	seen := map[string]bool{}
+	seen := make(map[string]bool, len(names))
 	for _, name := range names {
-		if seen[name] {
+		matchedName, ok := animationPromptDraftResolveRosterName(byName, animationPromptDraftNormalizeName(name))
+		if !ok || seen[matchedName] {
 			continue
 		}
-		character, exists := byName[name]
-		if !exists {
-			continue
-		}
-		seen[name] = true
-		matched = append(matched, character)
+		seen[matchedName] = true
+		matched = append(matched, byName[matchedName])
 	}
 	return matched
+}
+
+// animationPromptDraftResolveRosterName 将 LLM 给出的一个人物名解析到人设名单条目，返回命中的名单条目名；
+// 各层匹配均失败时 ok 为 false，调用方静默忽略该名字
+func animationPromptDraftResolveRosterName(byName map[string]models.Character, name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	// 1. 精确匹配
+	if _, ok := byName[name]; ok {
+		return name, true
+	}
+	root := animationPromptDraftRootName(name)
+	// 2. 从最后一个括号段开始逐层剥掉尾部括号（说明），每层尝试精确匹配
+	candidate := name
+	for strings.HasSuffix(candidate, ")") {
+		open := strings.LastIndex(candidate, "(")
+		if open < 0 {
+			break
+		}
+		candidate = strings.TrimSpace(candidate[:open])
+		if candidate == "" {
+			break
+		}
+		if _, ok := byName[candidate]; ok {
+			return candidate, true
+		}
+	}
+	// 3. 唯一根名兜底：名单中恰好只有一个该根名的条目才认，多个变体时不瞎猜
+	if root == "" {
+		return "", false
+	}
+	if _, ok := byName[root]; ok {
+		return root, true
+	}
+	unique := ""
+	count := 0
+	for rosterName := range byName {
+		if animationPromptDraftRootName(rosterName) == root {
+			count++
+			unique = rosterName
+		}
+	}
+	if count == 1 {
+		return unique, true
+	}
+	return "", false
 }
 
 // buildAnimationPromptDraftCharacterContext 组装人物人设名单上下文：LLM 依据名单保持出场人物形象一致，

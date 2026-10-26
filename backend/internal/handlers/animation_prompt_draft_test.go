@@ -157,14 +157,15 @@ func TestExtractAnimationPromptDraftCharacterNames(t *testing.T) {
 		t.Errorf("next-line list should be stripped from draft, got %q", cleaned)
 	}
 
-	// LLM 附带括号补充说明时只取括号前的名字
+	// LLM 附带括号说明时保留完整 token（括号内容可能是名字的一部分，如 林凡(成年)），
+	// 全角括号归一为半角；说明性括号由 matchAnimationPromptDraftCharacters 分层剥掉
 	annotated := "镜头 1：开场。\n【出场人物】连瑟（女主）、阿羽\n【说话人物】阿羽（旁白）"
 	_, appearing, speaking = extractAnimationPromptDraftCharacterNames(annotated)
-	if len(appearing) != 2 || appearing[0] != "连瑟" || appearing[1] != "阿羽" {
-		t.Errorf("annotated appearing = %v, want [连瑟 阿羽]", appearing)
+	if len(appearing) != 2 || appearing[0] != "连瑟(女主)" || appearing[1] != "阿羽" {
+		t.Errorf("annotated appearing = %v, want [连瑟(女主) 阿羽]", appearing)
 	}
-	if len(speaking) != 1 || speaking[0] != "阿羽" {
-		t.Errorf("annotated speaking = %v, want [阿羽]", speaking)
+	if len(speaking) != 1 || speaking[0] != "阿羽(旁白)" {
+		t.Errorf("annotated speaking = %v, want [阿羽(旁白)]", speaking)
 	}
 }
 
@@ -194,6 +195,147 @@ func TestMatchAnimationPromptDraftCharacters(t *testing.T) {
 	if got[0].ID != 3 || got[1].ID != 1 {
 		t.Errorf("matched IDs = [%d, %d], want [3, 1] (LLM 顺序、重名取排位靠前)", got[0].ID, got[1].ID)
 	}
+}
+
+func TestAnimationPromptDraftSplitRosterNames(t *testing.T) {
+	cases := []struct {
+		desc    string
+		content string
+		want    []string
+	}{
+		{desc: "顿号分隔", content: "连瑟、归一宗弟子", want: []string{"连瑟", "归一宗弟子"}},
+		{desc: "逗号/分号/斜杠/空白分隔", content: "连瑟, 阿羽；旁白/神秘人", want: []string{"连瑟", "阿羽", "旁白", "神秘人"}},
+		{desc: "带括号的名字保留完整 token", content: "林凡(成年)、苏寒月(人妻)", want: []string{"林凡(成年)", "苏寒月(人妻)"}},
+		{desc: "全角括号归一为半角", content: "林凡（成年）、苏寒月（人妻）", want: []string{"林凡(成年)", "苏寒月(人妻)"}},
+		{desc: "引号剥掉、括号保留", content: `“连瑟（女主）”、“阿羽”`, want: []string{"连瑟(女主)", "阿羽"}},
+		{desc: "尾部说明括号也保留（由匹配层解析）", content: "林凡(成年)（男主）、阿羽", want: []string{"林凡(成年)(男主)", "阿羽"}},
+		{desc: "空内容", content: "", want: nil},
+		{desc: "只剩分隔符", content: "、，,；;/ \t", want: nil},
+	}
+	for _, tc := range cases {
+		got := animationPromptDraftSplitRosterNames(tc.content)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: animationPromptDraftSplitRosterNames(%q) = %v, want %v", tc.desc, tc.content, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: animationPromptDraftSplitRosterNames(%q)[%d] = %q, want %q", tc.desc, tc.content, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestMatchAnimationPromptDraftCharactersLayered(t *testing.T) {
+	rosterOf := func(names ...string) []models.Character {
+		roster := make([]models.Character, 0, len(names))
+		for i, name := range names {
+			roster = append(roster, models.Character{ID: uint(i + 1), Name: name, Index: float64(i)})
+		}
+		return roster
+	}
+	cases := []struct {
+		desc   string
+		roster []models.Character
+		names  []string
+		want   []string
+	}{
+		{
+			desc:   "名字带括号且与名单完全一致 → 精确命中",
+			roster: rosterOf("林凡(成年)"),
+			names:  []string{"林凡(成年)"},
+			want:   []string{"林凡(成年)"},
+		},
+		{
+			desc:   "全角括号归一后命中",
+			roster: rosterOf("林凡(成年)"),
+			names:  []string{"林凡（成年）"},
+			want:   []string{"林凡(成年)"},
+		},
+		{
+			desc:   "根名在名单中变体唯一 → 兜底命中",
+			roster: rosterOf("林凡(成年)"),
+			names:  []string{"林凡"},
+			want:   []string{"林凡(成年)"},
+		},
+		{
+			desc:   "根名有多个变体 → 不瞎猜、宁可不挂",
+			roster: rosterOf("林凡(少年)", "林凡(成年)", "林凡(病房)"),
+			names:  []string{"林凡"},
+			want:   nil,
+		},
+		{
+			desc:   "带尾部说明括号 → 剥掉说明后命中",
+			roster: rosterOf("林凡(成年)"),
+			names:  []string{"林凡(成年)（男主）"},
+			want:   []string{"林凡(成年)"},
+		},
+		{
+			desc:   "纯说明括号剥掉后命中名单裸名",
+			roster: rosterOf("连瑟", "阿羽"),
+			names:  []string{"连瑟(女主)", "阿羽(旁白)"},
+			want:   []string{"连瑟", "阿羽"},
+		},
+		{
+			desc:   "不带括号的普通名字 → 保持原行为命中（回归保护）",
+			roster: rosterOf("礼部侍郎"),
+			names:  []string{"礼部侍郎"},
+			want:   []string{"礼部侍郎"},
+		},
+		{
+			desc:   "名单外人物忽略、保持 LLM 顺序",
+			roster: rosterOf("林凡(成年)", "苏寒月(人妻)"),
+			names:  animationPromptDraftSplitRosterNames("林凡(成年)、苏寒月（人妻）、不存在的人"),
+			want:   []string{"林凡(成年)", "苏寒月(人妻)"},
+		},
+		{
+			desc:   "多个写法解析到同一角色 → 去重只挂一次",
+			roster: rosterOf("林凡(成年)"),
+			names:  []string{"林凡(成年)（男主）", "林凡"},
+			want:   []string{"林凡(成年)"},
+		},
+	}
+	for _, tc := range cases {
+		got := matchAnimationPromptDraftCharacters(tc.roster, tc.names)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: matched %d characters (%v), want %v", tc.desc, len(got), characterNames(got), tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i].Name != tc.want[i] {
+				t.Errorf("%s: matched[%d] = %q, want %q", tc.desc, i, got[i].Name, tc.want[i])
+			}
+		}
+	}
+}
+
+func TestExtractAnimationPromptDraftCharacterNamesParenVariants(t *testing.T) {
+	// 名单行占位"无"的各种写法 → 名单为空
+	for _, content := range []string{"无", "（无）", "(无)", "None", "无。"} {
+		_, appearing, speaking := extractAnimationPromptDraftCharacterNames("镜头 1：空镜。\n【出场人物】" + content + "\n【说话人物】" + content)
+		if len(appearing) != 0 || len(speaking) != 0 {
+			t.Errorf("placeholder %q should produce empty lists, got appearing=%v speaking=%v", content, appearing, speaking)
+		}
+	}
+
+	// 带括号变体名整链路：切分保留括号并归一，供匹配层精确命中
+	draft := "镜头 1：病房走廊。\n【出场人物】林凡(成年)、苏寒月（人妻）、不存在的人\n【说话人物】林凡(病房)"
+	_, appearing, speaking := extractAnimationPromptDraftCharacterNames(draft)
+	if len(appearing) != 3 || appearing[0] != "林凡(成年)" || appearing[1] != "苏寒月(人妻)" || appearing[2] != "不存在的人" {
+		t.Errorf("appearing = %v, want [林凡(成年) 苏寒月(人妻) 不存在的人]", appearing)
+	}
+	if len(speaking) != 1 || speaking[0] != "林凡(病房)" {
+		t.Errorf("speaking = %v, want [林凡(病房)]", speaking)
+	}
+}
+
+// characterNames 提取人物名列表，便于断言信息展示
+func characterNames(characters []models.Character) []string {
+	names := make([]string, 0, len(characters))
+	for _, character := range characters {
+		names = append(names, character.Name)
+	}
+	return names
 }
 
 func TestBuildAnimationPromptDraftCharacterReferences(t *testing.T) {
