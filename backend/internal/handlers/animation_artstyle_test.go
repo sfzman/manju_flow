@@ -115,11 +115,12 @@ func TestValidateAnimationDuration(t *testing.T) {
 		{name: "wan below lower bound", model: "wan3.0-video", duration: 1, expectedError: true},
 		{name: "wan above upper bound", model: "wan3.0-video", duration: 31, expectedError: true},
 		{name: "wan other negative rejected", model: "wan3.0-video", duration: -2, expectedError: true},
-		{name: "ark rejects smart duration", model: "doubao-seedance-2-0-260128", duration: -1, expectedError: true},
-		{name: "ark lower bound", model: "doubao-seedance-2-0-fast-260128", duration: 5, expectedError: false},
-		{name: "ark upper bound", model: "doubao-seedance-2-0-fast-260128", duration: 15, expectedError: false},
-		{name: "ark below lower bound", model: "doubao-seedance-2-0-260128", duration: 4, expectedError: true},
-		{name: "ark above upper bound", model: "doubao-seedance-2-0-260128", duration: 16, expectedError: true},
+		{name: "ark rejects smart duration", model: "doubao-seedance-2-5-flash-261115", duration: -1, expectedError: true},
+		{name: "ark lower bound", model: "doubao-seedance-2-5-flash-261115", duration: 4, expectedError: false},
+		{name: "ark upper bound", model: "doubao-seedance-2-5-flash-261115", duration: 30, expectedError: false},
+		{name: "ark below lower bound", model: "doubao-seedance-2-5-flash-261115", duration: 3, expectedError: true},
+		{name: "ark above upper bound", model: "doubao-seedance-2-5-flash-261115", duration: 31, expectedError: true},
+		{name: "legacy ark model rejected", model: "doubao-seedance-2-0-260128", duration: 8, expectedError: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

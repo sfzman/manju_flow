@@ -58,7 +58,7 @@ interface ResolvedSceneFrameSet extends SceneFrameSet {
 }
 
 type ReferenceMediaType = 'image' | 'audio' | 'video';
-type VideoGenerationModel = 'doubao-seedance-2-0-260128' | 'doubao-seedance-2-0-fast-260128' | 'wan3.0-video' | 'wan3.0-video-prime';
+type VideoGenerationModel = 'doubao-seedance-2-5-flash-261115' | 'wan3.0-video' | 'wan3.0-video-prime';
 type VideoGenerationRatio = '16:9' | '9:16';
 
 interface UploadedReferenceMedia {
@@ -128,7 +128,7 @@ const PROMPT_ASSET_CATEGORY_LABELS: Record<MentionCategory, string> = {
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const DEFAULT_VIDEO_MODEL: VideoGenerationModel = 'doubao-seedance-2-0-fast-260128';
+const DEFAULT_VIDEO_MODEL: VideoGenerationModel = 'doubao-seedance-2-5-flash-261115';
 const DEFAULT_VIDEO_RATIO: VideoGenerationRatio = '16:9';
 const DEFAULT_VIDEO_DURATION = 8;
 // 万相模型智能时长标记：duration 传 -1 时由模型根据提示词自动决定输出时长
@@ -406,8 +406,9 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
       if (current === SMART_VIDEO_DURATION) {
         return isWanVideoModel ? SMART_VIDEO_DURATION : DEFAULT_VIDEO_DURATION;
       }
-      const min = isWanVideoModel ? 2 : 5;
-      const max = isWanVideoModel ? 30 : 15;
+      // 万相与 Seedance 2.5 Flash 均支持 2/4-30s，此处统一收敛到 [4, 30]
+      const min = isWanVideoModel ? 2 : 4;
+      const max = 30;
       return Math.min(Math.max(current, min), max);
     });
   }, [isWanVideoModel]);
@@ -1578,7 +1579,12 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
       setGenerationPrompt(task.text || '');
       setGenerationRatio(task.ratio || DEFAULT_VIDEO_RATIO);
       setGenerationDuration(task.duration || DEFAULT_VIDEO_DURATION);
-      setGenerationModel(task.model === 'wan3.0-video-prime' ? 'wan3.0-video' : task.model || DEFAULT_VIDEO_MODEL);
+      // 历史任务可能存有已下线的模型（Seedance 2.0 系列、wan prime）：一律回退到当前默认模型
+      const reusedModel =
+        task.model === 'wan3.0-video' || task.model === 'doubao-seedance-2-5-flash-261115'
+          ? task.model
+          : DEFAULT_VIDEO_MODEL;
+      setGenerationModel(reusedModel);
       setReferenceMedia({
         image: buildReferenceMediaFromKeys('image', task.referenceImageKeys, task.referenceImageAssets),
         audio: buildReferenceMediaFromKeys('audio', task.referenceAudioKeys, task.referenceAudioAssets),
@@ -3035,8 +3041,7 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
                               <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30">视频模型</div>
                               <div className="grid gap-2 sm:grid-cols-2">
                                 {[
-                                  { value: 'doubao-seedance-2-0-260128' as VideoGenerationModel, label: 'Seedance 2.0', desc: '标准质量，适合主版本制作' },
-                                  { value: 'doubao-seedance-2-0-fast-260128' as VideoGenerationModel, label: 'Seedance 2.0 Fast', desc: '更快出结果，适合快速试稿' },
+                                  { value: 'doubao-seedance-2-5-flash-261115' as VideoGenerationModel, label: 'Seedance 2.5 Flash', desc: '新一代模型，同价更优，支持最长 30s' },
                                   { value: 'wan3.0-video' as VideoGenerationModel, label: '万相 3.0', desc: '标准版全能参考视频生成' },
                                 ].map(option => {
                                   const active = generationModel === option.value;
@@ -3118,16 +3123,16 @@ export const AnimationEditor: React.FC<AnimationEditorProps> = ({
                                 <>
                                   <input
                                     type="range"
-                                    min={isWanVideoModel ? 2 : 5}
-                                    max={isWanVideoModel ? 30 : 15}
+                                    min={isWanVideoModel ? 2 : 4}
+                                    max={30}
                                     step={1}
                                     value={generationDuration}
                                     onChange={e => setGenerationDuration(Number(e.target.value))}
                                     className="w-full accent-blue-500"
                                   />
                                   <div className="flex items-center justify-between text-[11px] text-white/30">
-                                    <span>{isWanVideoModel ? '2s' : '5s'}</span>
-                                    <span>{isWanVideoModel ? '30s' : '15s'}</span>
+                                    <span>{isWanVideoModel ? '2s' : '4s'}</span>
+                                    <span>30s</span>
                                   </div>
                                 </>
                               )}

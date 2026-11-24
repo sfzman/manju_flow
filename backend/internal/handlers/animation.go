@@ -54,10 +54,10 @@ var (
 		// 下面是agent plan 的model id
 		// "doubao-seedance-2.0":      {},
 		// "doubao-seedance-2.0-fast": {},
-		"doubao-seedance-2-0-260128":      {},
-		"doubao-seedance-2-0-fast-260128": {},
-		"wan3.0-video":                    {},
-		"wan3.0-video-prime":              {},
+		// Seedance 2.5 Flash：与 Seedance 2.0 同价但质量更好，替换原 2.0 系列
+		"doubao-seedance-2-5-flash-261115": {},
+		"wan3.0-video":                     {},
+		"wan3.0-video-prime":               {},
 	}
 	animationTaskPollerRunning atomic.Bool
 )
@@ -176,6 +176,9 @@ func validateAnimationDuration(model string, duration int) error {
 	minDuration, maxDuration := 5, 15
 	if isWanAnimationModel(model) {
 		minDuration, maxDuration = 2, 30
+	} else {
+		// Seedance 2.5 Flash 支持 [4, 30] 秒
+		minDuration, maxDuration = 4, 30
 	}
 	if duration < minDuration || duration > maxDuration {
 		return fmt.Errorf("duration must be between %d and %d seconds", minDuration, maxDuration)
@@ -200,7 +203,7 @@ func animationProviderName(model string) string {
 
 func anyAnimationProviderConfigured() bool {
 	for _, model := range []string{
-		"doubao-seedance-2-0-260128",
+		"doubao-seedance-2-5-flash-261115",
 		"wan3.0-video",
 	} {
 		if isAnimationProviderConfigured(model) {
